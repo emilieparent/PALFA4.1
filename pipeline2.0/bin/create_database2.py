@@ -1,0 +1,73 @@
+#!/usr/bin/env python
+
+import os.path
+
+import jobtracker2
+import config.background2
+"""
+This script creates sqlite3 clean database structure to be used by Pipeline2.0
+"""
+#
+# Note: 'job_id' key in job_submits is the same as 'id' key in jobs
+#
+creates = []
+
+
+creates.append("CREATE TABLE download_attempts ( " \
+                    "file_id INTEGER, " \
+                    "created_at TEXT, " \
+                    "details TEXT, " \
+                    "id INTEGER PRIMARY KEY, " \
+                    "status TEXT, " \
+                    "updated_at TEXT)")
+creates.append("CREATE TABLE files ( " \
+                    "created_at TEXT, " \
+                    "details TEXT, " \
+                    "filename TEXT, " \
+                    "id INTEGER PRIMARY KEY, " \
+                    "remote_filename TEXT, " \
+                    "request_id INTEGER, " \
+                    "status TEXT, " \
+                    "updated_at TEXT, " \
+                    "size INTEGER)")
+creates.append("CREATE TABLE job_files ( " \
+                    "file_id INTEGER, " \
+                    "created_at TEXT, " \
+                    "id INTEGER PRIMARY KEY, " \
+                    "job_id INTEGER, " \
+                    "updated_at TEXT)")
+creates.append("CREATE TABLE job_submits ( " \
+                    "created_at TEXT, " \
+                    "details TEXT, " \
+                    "id INTEGER PRIMARY KEY, " \
+                    "job_id INTEGER, " \
+                    "queue_id TEXT, " \
+                    "status TEXT, " \
+                    "updated_at TEXT, " \
+                    "output_dir TEXT)")
+creates.append("CREATE TABLE jobs ( " \
+                    "created_at TEXT, " \
+                    "details TEXT, " \
+                    "id INTEGER PRIMARY KEY, " \
+                    "status TEXT, " \
+                    "updated_at TEXT)")
+creates.append("CREATE TABLE requests ( " \
+                    "size INTEGER, " \
+                    "numbits INTEGER, " \
+                    "numrequested INTEGER, " \
+                    "file_type TEXT, " \
+                    "created_at TEXT, " \
+                    "details TEXT, " \
+                    "guid TEXT, " \
+                    "id INTEGER PRIMARY KEY, " \
+                    "status TEXT, " \
+                    "updated_at TEXT)")
+
+if not os.path.exists(config.background2.jobtracker_db):
+    print "Database file %s doesn't exist, creating a clean database." % \
+                    config.background2.jobtracker_db
+    for table in creates:
+        jobtracker2.query(table)
+else:
+    print "Database file %s already exists. " \
+            "Aborting creation of database." % config.background2.jobtracker_db

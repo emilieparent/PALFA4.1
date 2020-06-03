@@ -1,0 +1,34 @@
+A logistical pulsar search pipeline using Scott Ransom's PRESTO.
+
+Documentation:
+--------------
+The documentation includes information about how the pipeline is set up, 
+how to install it, dependencies, etc.
+
+Detailed documentation can be found in docs/documentation.pdf.
+
+
+Some key dependencies:
+----------------------
+PRESTO, a suite of pulsar search programs by Scott Ransom.
+    - Available on GitHub: http://github.com/scottransom/presto
+    - Python scripts and wrappers must be set up. (See PRESTO's documentation.)
+
+psrfits_utils, a suite of utilities to read/write/manipulate PSRFITS files.
+    - Availble at: https://github.com/kstovall/psrfits_utils
+    - NOTE: Kevin Stovall's branch of psrfits_utils is required until 'combine_mocks'
+            is merged into the main stream.
+
+Additional dependencies are listed docs/documentation.pdf.
+
+
+About:
+------
+GitHub address: http://github.com/plazar/pipeline2.0
+
+If you plan on using/modifying this pipeline to search data from other surveys please let me know.
+
+Contact:
+--------
+Patrick Lazarus, March 9th, 2011
+plazar at physics.mcgill.ca
