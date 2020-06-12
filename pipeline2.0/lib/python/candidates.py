@@ -20,6 +20,8 @@ import time
 import numpy as np
 import scipy.special
 from StringIO import StringIO
+import random
+import string
 
 import psr_utils
 import prepfold
@@ -758,8 +760,10 @@ class PFDTarball(upload.FTPable):
         self.tarfn = tarfn
 
     def extract(self):
-        os.mkdir(self.local_pfd_dir)
-
+	try:
+        	os.makedirs(self.local_pfd_dir)
+	except:
+        	os.mkdir(self.local_pfd_dir)
         #extract pfd tarball to temporary dir
         tar = tarfile.open(self.tarfn)
         try:
@@ -847,11 +851,18 @@ def get_candidates(versionnum, directory, header_id=None, timestamp_mjd=None, in
     attribs = np.loadtxt(attrib_fn,dtype='S')
         
     # Create temporary directory
-    tempdir = tempfile.mkdtemp(suffix="_tmp", prefix="PALFA_pfds_")
+    N = 6
+    prefix = "/localscratch/PALFA_pfds_"
+    suffix = "_tmp/"
+    String = ''.join(random.choice(string.ascii_uppercase + string.digits + string.ascii_lowercase) for _ in range(N))
+    tempdir = prefix+String+suffix
+    os.makedirs(tempdir)
+    #tempdir = tempname
 
     if foldedcands or ffa_foldedcands:
 
         pfd_tarfns = glob.glob(os.path.join(directory, "*_pfd.tgz"))
+
         if len(pfd_tarfns) != 1:
             raise PeriodicityCandidateError("Wrong number (%d) of *_pfd.tgz " \
                                              "files found in %s" % (len(pfd_tarfns), \

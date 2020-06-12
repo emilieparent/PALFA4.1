@@ -5,6 +5,7 @@ import glob
 import sys
 import time
 import shutil
+import subprocess
 
 import debug
 import datafile
@@ -36,18 +37,79 @@ def run():
 
     """
     query = "SELECT * FROM jobs " \
-            "WHERE status='processed'"
+            "WHERE status='processed' AND details in ('Ready for upload','Processed without errors') order by updated_at desc"
+    query = "SELECT * FROM jobs " \
+            "WHERE status='processed' AND details in ('Ready for upload','Processed without errors','Processed with warnings') order by id desc"
     processed_jobs = jobtracker.query(query)
     print "Found %d processed jobs waiting for upload" % len(processed_jobs)
     for ii, job in enumerate(processed_jobs):
+       	starttime0 = time.time()
+    	if debug.UPLOAD:
+        	upload.upload_timing_summary = {}
         # Get the job's most recent submit
-        submit = jobtracker.query("SELECT * FROM job_submits " \
-                                  "WHERE job_id=%d " \
-                                    "AND status='processed' " \
-                                  "ORDER BY id DESC" % job['id'], fetchone=True)
+        submit = jobtracker.query("SELECT * FROM job_submits WHERE job_id=%d "%job['id']+"AND status='processed'" \
+        	" AND output_dir like '/project/rrg-vkaspi-ad/%' ORDER BY id DESC", fetchone=True)
+        if submit is None:
+            continue
         print "Upload %d of %d" % (ii+1, len(processed_jobs))
-        upload_results(submit)
+	make_fail = False
+	try:
+	        upload_results(submit)
+		print "Total time for upload = %.2f s)"%(time.time()-starttime0)
+	except:
+		if len(glob.glob(submit['output_dir']+'/*'))==0:
+			print "Empty results directory! Upload failed -> Updating jobtracking database"
+			#cmd = "python ~/projects/rrg-vkaspi-ad/PALFA4/software/pipeline2.0/bin/stop_processing_jobs.py "
+			#cmd+= " -s %s --upload-fail"%str(submit['id'])
+			#subprocess.call(cmd,shell=True)
+			pipeline_utils.change_job_status_jtdb(submit,'processing_failed')
+		else:
+			outdir = submit['output_dir']
+                        outdir_part = outdir.split('/results/')[-1]
+                        print "!! Upload_failed, skipping submit_id %s  (dir: %s)"%(str(submit['id']),outdir_part)
+                        #cmd = "python /home/eparent/projects/rrg-vkaspi-ad/PALFA4/software/pipeline2.0/bin/stop_processing_jobs.py "
+			#cmd+= " -s %s --upload-fail"%str(submit['id'])
+                        #subprocess.call(cmd,shell=True)
 
+                        f = open('/scratch/eparent/eparent/PALFA4/failed_uploads.txt','a')
+                        line = str(submit['job_id'])+'\t'+str(submit['id'])+'\t'+outdir_part+'\n'
+                        f.write(line)
+                        f.close()
+
+			fitsfile = get_fitsfiles(submit)[0]
+			base = fitsfile.replace('.fits','')
+			tar = base+'.tgz'
+			report = base+'.report'
+			to_keep = glob.glob(fitsfile)
+			to_keep += glob.glob(tar)
+			to_keep += glob.glob(report)
+			all_files = glob.glob(outdir+'/*')
+
+	    		if config.upload.upload_zerodm_periodicity or config.upload.upload_zerodm_singlepulse:
+				outdir_zerodm = os.path.join(outdir, 'zerodm')
+				to_keep += glob.glob(outdir_zerodm+'/*zerodm.tgz')
+				to_keep += glob.glob(outdir_zerodm+'/*zerodm.report')
+				all_files += glob.glob(outdir_zerodm+'/*')
+
+				
+			to_del = list(set(all_files)-set(to_keep))
+	    		for f in to_del:
+				if not f.endswith('/zerodm'):
+					os.remove(f)
+			if make_fail:
+				pipeline_utils.change_job_status_jtdb(submit,'processing_failed')
+				faildir_base = "/scratch/eparent/eparent/PALFA4/failed_uploads"
+				faildir = os.path.join(faildir_base,outdir_part)
+				if not os.path.exists(faildir):
+					os.makedirs(faildir)
+				for f in to_keep: 
+					try:
+						shutil.move(f,faildir)
+					except:
+						continue
+				jobtracker.query("Update job_submits set output_dir='%s' where id=%d"%(str(faildir),submit['id']))
+				
+			#sys.exit()
 
 def get_version_number(dir):
     """Given a directory containing results check to see if there is a file 
@@ -87,8 +149,11 @@ def upload_results(job_submit):
             None
     """
     print "Attempting to upload results"
+
     print "\tJob ID: %d, Job submission ID: %d\n\tOutput Dir: %s" % \
             (job_submit['job_id'], job_submit['id'], job_submit['output_dir'])
+
+
     if debug.UPLOAD:
         upload.upload_timing_summary = {}
         starttime = time.time()
@@ -98,6 +163,27 @@ def upload_results(job_submit):
 
         # Prepare for upload
         dir = job_submit['output_dir']
+
+	# NEW Beluga - Untar the tarball 
+	import tarfile 
+	to_keep = os.listdir(job_submit['output_dir'])
+	tarball = glob.glob(job_submit['output_dir']+'/*00.tgz')[0]
+	tar = tarfile.open(tarball,'r:gz')
+	tar.extractall(path=job_submit['output_dir'])
+	tar.close()
+
+	all_files = os.listdir(job_submit['output_dir'])
+	to_del = set(all_files)-set(to_keep)
+
+	if config.upload.upload_zerodm_periodicity or config.upload.upload_zerodm_singlepulse:
+		to_keep_zerodm = os.listdir(job_submit['output_dir']+'/zerodm')
+		tarball = glob.glob(job_submit['output_dir']+'/zerodm/*zerodm.tgz')[0]
+		tar = tarfile.open(tarball,'r:gz')
+		tar.extractall(path=job_submit['output_dir']+'/zerodm')
+		tar.close()
+		all_files_zerodm = os.listdir(job_submit['output_dir']+'/zerodm')
+		to_del_zerodm = set(all_files_zerodm)-set(to_keep_zerodm)
+
         pdm_dir = os.path.join(dir,"zerodm") if config.upload.upload_zerodm_periodicity else dir
         sp_dir = os.path.join(dir,"zerodm") if config.upload.upload_zerodm_singlepulse else dir
 
@@ -126,24 +212,25 @@ def upload_results(job_submit):
         print "\tHeader parsed."
 
         rat_inst_id_cache = ratings2.utils.RatingInstanceIDCache(dbname='common3')
-        #rat_inst_id_cache = ratings2.utils.RatingInstanceIDCache(dbname='MichellePalfaCands')
+
         cands, tempdir = candidates.get_candidates(version_number, pdm_dir, \
                                                    timestamp_mjd=data.timestamp_mjd, \
                                                    inst_cache=rat_inst_id_cache)
-        print "\tPeriodicity candidates parsed."
+        print "\tPeriodicity candidates parsed. (%d cands)"%len(cands) 
         sp_cands, tempdir_sp = sp_candidates.get_spcandidates(version_number, sp_dir, \
                                                               timestamp_mjd=data.timestamp_mjd, \
                                                               inst_cache=rat_inst_id_cache)
-        print "\tSingle pulse candidates parsed."
+        print "\tSingle pulse candidates parsed. (%d cands)"%len(sp_cands)
 
-        for c in (cands + sp_cands):
-            hdr.add_dependent(c)
         diags = diagnostics.get_diagnostics(data.obs_name, 
                                              data.beam_id, \
                                              data.obstype, \
                                              version_number, \
                                              pdm_dir, sp_dir)
         print "\tDiagnostics parsed."
+
+        for c in (cands + sp_cands):
+            hdr.add_dependent(c)
         
         if debug.UPLOAD: 
             upload.upload_timing_summary['Parsing'] = \
@@ -152,6 +239,7 @@ def upload_results(job_submit):
 
         # Perform the upload
         header_id = hdr.upload(db)
+	print "Header ID: ",header_id
         for d in diags:
             d.upload(db)
         print "\tDB upload completed and checked successfully. header_id=%d" % \
@@ -209,6 +297,7 @@ def upload_results(job_submit):
     else:
         # No errors encountered. Commit changes to the DB.
         db.commit()
+	print " ..Committed to DB"
 
         #FTP any FTPables
         attempts = 0
@@ -281,11 +370,18 @@ def upload_results(job_submit):
 		upload.upload_timing_summary['End-to-end'] = \
 		    upload.upload_timing_summary.setdefault('End-to-end', 0) + \
 		    (time.time()-starttime)
-		print "Upload timing summary:"
+		#print "Upload timing summary:  (total = %.2f s)"%(time.time()-starttime0)
 		for k in sorted(upload.upload_timing_summary.keys()):
 		    print "    %s: %.2f s" % (k, upload.upload_timing_summary[k])
 	    print "" # Just a blank line
-       
+
+	   # NEW Beluga - re-delete files
+	    for f in to_del:
+		os.remove(job_submit['output_dir']+'/'+f)
+	   
+	    if config.upload.upload_zerodm_periodicity or config.upload.upload_zerodm_singlepulse:
+		for f in to_del_zerodm:
+		   	os.remove(job_submit['output_dir']+'/zerodm/'+f)
 
 def get_fitsfiles(job_submit):
     """Find the fits files associated with this job.

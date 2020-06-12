@@ -41,7 +41,7 @@ def upload_results(dir):
     	hdr = header.get_header(fitsfiles)
     	print "\tHeader parsed."
     
-        rat_inst_id_cache = ratings2.utils.RatingInstanceIDCache(dbname='common3')
+        rat_inst_id_cache = ratings2.utils.RatingInstanceIDCache(dbname='common3')      #!!!!
         #rat_inst_id_cache = ratings2.utils.RatingInstanceIDCache(dbname='MichellePalfaCands')
     	#cands, tempdir = candidates.get_candidates(version_number, dir)
         cands, tempdir = candidates.get_candidates(version_number, pdm_dir, \

@@ -91,16 +91,26 @@ class Header(upload.Uploadable,upload.FTPable):
         header_id = super(Header, self).upload(dbname=dbname, *args, **kwargs)[0]
         
         self.compare_with_db(dbname=dbname)
- 
         if debug.UPLOAD:
             upload.upload_timing_summary['header'] = \
                 upload.upload_timing_summary.setdefault('header', 0) + \
                 (time.time()-starttime)
-        
+        skipped = 0
         for dep in self.dependents:
             dep.header_id = header_id
             if isinstance(dep,upload.Uploadable):
-                dep.upload(dbname=dbname, *args, **kwargs)
+		try:
+	                dep.upload(dbname=dbname, *args, **kwargs)
+		except:
+			print "Skipping candidate in header_id: ",dep.header_id
+			skipped+=1
+			pass
+	if skipped>0:
+		g = open('ERROR_upload.log','a')
+		l="Skipped '%s' candidates (matching entries) for header_id: '%s'" \
+		   %(str(skipped),str(dep.header_id))
+		g.write(l+'\n')
+		g.close()
         return header_id
 
     def upload_FTP(self, cftp, dbname):
@@ -219,6 +229,7 @@ class Header(upload.Uploadable,upload.FTPable):
                                 (self.obs_name, self.beam_id))
         elif len(rows) > 1:
             # Too many matching entries!
+	    print "There are '%s' matching rows in database (obs_name='%s')"%(len(rows),rows[0][0])
             raise ValueError("Too many matching entries in common DB!\n" \
                                 "(obs_name: %s, beam_id: %d)" % \
                                 (self.obs_name, self.beam_id))

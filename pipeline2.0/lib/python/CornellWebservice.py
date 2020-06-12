@@ -17,10 +17,11 @@ class Client():
                 response: The response of the webservice, a string.
         """
         params = urllib.urlencode(kwargs)
+	#print "url to open: ","%s/%s?%s" % (config.download.api_service_url, name, params)
         url_open = urllib.urlopen("%s/%s?%s" % (config.download.api_service_url, \
                                                 name, params))
         response = url_open.read()
-        # print response
+	#print "CornellWebservice's response:",response
         return self.parse_response(response)
 
     def parse_response(self, data):

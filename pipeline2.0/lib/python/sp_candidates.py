@@ -26,6 +26,8 @@ import upload
 import pipeline_utils
 import singlepulse.read_spd as read_spd
 import ratings2
+import random
+import string
 
 import config.basic
 import config.upload
@@ -247,9 +249,8 @@ class SinglePulseTarball(upload.FTPable,upload.Uploadable):
         if not self.uploaded:
 
 	    ftp_fullpath = os.path.join(self.ftp_path, self.filename)
-            print self.ftp_path
-            print cftp.dir_exists(self.ftp_path)
 	    if not cftp.dir_exists(self.ftp_path):
+		print " attempting to make directory %s"%self.ftp_path
 		cftp.mkd(self.ftp_path)
 
             if ftp_fullpath in cftp.list_files(self.ftp_path):
@@ -1096,7 +1097,13 @@ def get_spcandidates(versionnum, directory, header_id=None, timestamp_mjd=None, 
     sp_cands = []
 
     # Create temporary directory
-    tempdir = tempfile.mkdtemp(suffix="_tmp", prefix="PALFA_spds_")
+    N = 6
+    prefix = "/localscratch/PALFA_spds_"
+    suffix = "_tmp/"
+    String = ''.join(random.choice(string.ascii_uppercase + string.digits + string.ascii_lowercase) for _ in range(N))
+    tempdir = prefix+String+suffix
+    os.makedirs(tempdir)
+    #tempdir = tempfile.mkdtemp(suffix="_tmp", prefix="PALFA_spds_")
 
     mjd = int(timestamp_mjd)
     remote_spd_base = os.path.join(config.upload.spd_ftp_dir,str(mjd)) 
@@ -1130,8 +1137,7 @@ def get_spcandidates(versionnum, directory, header_id=None, timestamp_mjd=None, 
                 os.path.basename(spdfn.replace(".spd",".spd.png")))
         ratfn = os.path.join(tempdir, \
                 os.path.basename(spdfn.replace(".spd",".spd.rat")))
-
-        spd = read_spd.spd(spdfn)
+        spd = read_spd.spd(str(spdfn))
         cand = SinglePulseCandidate(ii+1, spd, versionnum, header_id=header_id)
         cand.add_dependent(SinglePulseCandidatePNG(pngfn))
         cand.add_dependent(SinglePulseCandidateSPD(spdfn, spd_size, remote_spd_dir=remote_spd_dir))

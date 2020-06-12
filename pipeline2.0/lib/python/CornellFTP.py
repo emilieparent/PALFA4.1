@@ -1,5 +1,6 @@
 import os
 import os.path
+import sys
 
 import M2Crypto
 
@@ -12,11 +13,13 @@ import config.download
 import subprocess
 import datetime
 
+
 cout = OutStream.OutStream("CornellFTP Module", \
                 os.path.join(config.basic.log_dir, "downloader.log"), \
                 config.background.screen_output)
 
 class CornellFTP(M2Crypto.ftpslib.FTP_TLS):
+    """
     def __init__(self, host=config.download.ftp_host, \
                         port=config.download.ftp_port, \
                         username=config.download.ftp_username, \
@@ -26,11 +29,28 @@ class CornellFTP(M2Crypto.ftpslib.FTP_TLS):
         M2Crypto.ftpslib.FTP_TLS.__init__(self, *args, **kwargs)
         try:
             self.connect(host, port)
-            self.auth_tls()
+            #self.auth_tls()
             self.set_pasv(1)
             self.login(username, password)
         except Exception, e:
             raise get_ftp_exception(str(e))
+        else:
+            cout.outs("CornellFTP - Connected and logged in")
+    """
+    def __init__(self, host=config.download.ftp_host, \
+                        port=config.download.ftp_port, \
+                        username=config.download.ftp_username, \
+                        password=config.download.ftp_password, \
+                        *args, **kwargs):
+
+        M2Crypto.ftpslib.FTP_TLS.__init__(self, *args, **kwargs)
+        try:
+            self.connect(host, port)
+            #self.auth_tls()
+            self.set_pasv(1)
+            self.login(username, password)
+        except:
+            cout.outs("CornellFTP - Error while loggin in")
         else:
             cout.outs("CornellFTP - Connected and logged in")
 
@@ -116,30 +136,35 @@ class CornellFTP(M2Crypto.ftpslib.FTP_TLS):
                                     "on FTP server: %s" % (ftp_fn, str(e)))
             
 
-    def download(self, ftp_path, local_path=config.download.datadir,\
+    def download(self, ftp_path, guid, local_path=config.download.datadir,\
                  preserve_modtime=True):
 
         localfn = os.path.join(local_path, os.path.basename(ftp_path))
-
 
         if config.download.use_lftp:
 
             username = config.download.ftp_username
             password = config.download.ftp_password
-
-            lftp_cmd = '"get %s -o %s"' % (ftp_path, localfn)
+	    #EMILIE TEST!!
+            #lftp_cmd = '"get %s -o %s"' % (ftp_path, localfn)
             
-            if preserve_modtime:
-                cmd = "lftp -c 'set xfer:clobber 1;"
-            else:
-                cmd = "lftp -c 'set xfer:clobber 1; set ftp:use-mdtm 0;"
+            #if preserve_modtime:
+            #    cmd = "lftp -c 'set xfer:clobber 1; set ssl:verify-certificate false;"
+            #else:
+            #    cmd = "lftp -c 'set xfer:clobber 1; set ssl:verify-certificate false; set ftp:use-mdtm 0;"
 
-            cmd += " open -e %s -u %s,%s " % (lftp_cmd, username, password)\
-                   + "-p 31001 arecibo.tc.cornell.edu' > /dev/null"
+            #cmd += " open -e %s -u %s,%s " % (lftp_cmd, username, password)\
+            #       + "-p 31001 arecibo.tc.cornell.edu' > /dev/null"
+
+	    #EMILIE TEST!!
+	    os.chdir(config.download.datadir)
+	    cmd_set = '"set xfer:clobber 1; set ssl:verify-certificate false; set ftp:use-mdtm 0; mget %s"'%ftp_path
+	    cmd_mid = "'open -e %s -u %s,%s -p 31001 arecibo.tc.cornell.edu'"%(cmd_set,username, password)
+	    cmd = str("lftp -c ")+"%s"%cmd_mid
+            print cmd
 
             cout.outs("CornellFTP - Starting Download of: %s" % \
                         os.path.split(ftp_path)[-1])
-
             subprocess.call(cmd, shell=True)
 
         else:
@@ -219,6 +244,16 @@ def mirror(source_dir,dest_dir,reverse=False,parallel=10):
     cmd = "lftp -c 'open -e %s -u %s,%s " %\
              (lftp_cmd, username, password)\
              + "-p 31001 arecibo.tc.cornell.edu'"
+
+    #EMILIE TEST !!!
+    if not os.path.exists(source_dir):
+	print "Local directory (source dir) does not exists!!  Quitting ..."
+	sys.exit()
+    cmd_set = '"set ssl:verify-certificate false; mirror %s --parallel=%d %s %s"' % \
+                (reverse_flag,parallel,source_dir,dest_dir)
+    cmd_mid = "'open -e %s -u %s,%s -p 31001 arecibo.tc.cornell.edu'"%(cmd_set,username, password)
+    cmd = str("lftp -c ")+"%s"%cmd_mid
+    print cmd
     subprocess.call(cmd, shell=True)
 
     cout.outs("CornellFTP - Finished lftp mirror of: %s" % \
@@ -238,9 +273,16 @@ def pget(ftp_fn, local_path, parallel=10):
     cout.outs("CornellFTP - Starting lftp pget of: %s" % \
                 os.path.split(ftp_fn)[-1])
 
+
     lftp_cmd = '"pget -n %d %s -o %s"' % \
                 (parallel,ftp_fn,local_path)
     cmd = "lftp -c 'set xfer:clobber 1; open -e %s -u %s,%s " %\
+             (lftp_cmd, username, password)\
+             + "-p 31001 arecibo.tc.cornell.edu'"
+    # EMILIE TESTING!
+    lftp_cmd = '" set xfer:clobber 1; set ssl:verify-certificate false; pget -n %d %s -o %s"' % \
+                (parallel,ftp_fn,local_path)
+    cmd = "lftp -c ' open -e %s -u %s,%s " %\
              (lftp_cmd, username, password)\
              + "-p 31001 arecibo.tc.cornell.edu'"
     subprocess.call(cmd, shell=True)

@@ -3,6 +3,7 @@
 A few objects for keeping track of pulsar search jobs.
 
 Patrick Lazarus, June 5th, 2010
+Emilie Parent, July 2019
 """
 import os
 import re
@@ -15,7 +16,6 @@ import string
 
 import datafile
 import jobtracker
-import mailer
 import OutStream
 import pipeline_utils
 import queue_managers
@@ -24,6 +24,11 @@ import config.processing
 import config.jobpooler
 import config.email
 import config.basic
+
+import glob
+import numpy as np
+
+import getpass 
 
 jobpool_cout = OutStream.OutStream("JobPool", \
                     os.path.join(config.basic.log_dir, "jobpooler.log"), \
@@ -40,22 +45,21 @@ def status(log=True):
     Output(s):
         Displays number of jobs processed, uploaded, waiting, waiting retry, failed.
     """
-    running_jobs = jobtracker.query("SELECT * FROM jobs WHERE status='submitted'")
-    processed_jobs = jobtracker.query("SELECT * FROM jobs WHERE status='processed'")
-    uploaded_jobs = jobtracker.query("SELECT * FROM jobs WHERE status='uploaded'")
-    new_jobs = jobtracker.query("SELECT * FROM jobs WHERE status='new'")
-    failed_jobs = jobtracker.query("SELECT * FROM jobs WHERE status='failed'")
-    retrying_jobs = jobtracker.query("SELECT * FROM jobs WHERE status='retrying'")
-    dead_jobs = jobtracker.query("SELECT * FROM jobs WHERE status='terminal_failure'")
-
+    running_jobs = jobtracker.query("SELECT count(*) FROM jobs WHERE status='submitted'")
+    processed_jobs = jobtracker.query("SELECT count(*) FROM jobs WHERE status='processed'")
+    uploaded_jobs = jobtracker.query("SELECT count(*) FROM jobs WHERE status='uploaded' and updated_at>'2019-08-15 00:00:00' ")
+    new_jobs = jobtracker.query("SELECT count(*) FROM jobs WHERE status='new'")
+    failed_jobs = jobtracker.query("SELECT count(*) FROM jobs WHERE status='failed'")
+    retrying_jobs = jobtracker.query("SELECT count(*) FROM jobs WHERE status='retrying'")
+    dead_jobs = jobtracker.query("SELECT count(*) FROM jobs WHERE status='terminal_failure'")
     status_str= "\n\n================= Job Pool Status ==============\n"
-    status_str+="Num. of jobs            running: %d\n" % len(running_jobs)
-    status_str+="Num. of jobs          processed: %d\n" % len(processed_jobs)
-    status_str+="Num. of jobs           uploaded: %d\n" % len(uploaded_jobs)
-    status_str+="Num. of jobs            waiting: %d\n" % len(new_jobs)
-    status_str+="Num. of jobs      waiting retry: %d\n" % len(retrying_jobs)
-    status_str+="Num. of jobs             failed: %d\n" % len(failed_jobs)
-    status_str+="Num. of jobs permanently failed: %d\n" % len(dead_jobs)
+    status_str+="Num. of jobs            running: %d\n" % running_jobs[0][0]#len(running_jobs)
+    status_str+="Num. of jobs          processed: %d\n" % processed_jobs[0][0]#len(processed_jobs)
+    status_str+="Num. of jobs   uploaded(beluga): %d\n" % uploaded_jobs[0][0]#len(uploaded_jobs)
+    status_str+="Num. of jobs            waiting: %d\n" % new_jobs[0][0]#len(new_jobs)
+    status_str+="Num. of jobs      waiting retry: %d\n" % retrying_jobs[0][0]#len(retrying_jobs)
+    status_str+="Num. of jobs             failed: %d\n" % failed_jobs[0][0]#len(failed_jobs)
+    status_str+="Num. of jobs permanently failed: %d\n" % dead_jobs[0][0]#len(dead_jobs)
     if log:
         jobpool_cout.outs(status_str)
     else:
@@ -131,6 +135,42 @@ def rotate():
     print "recovered failed entries"
     submit_jobs()
 
+
+def eval_errorlog(queue_id):
+
+    fatal_error=False
+    if config.jobpooler.queue_manager.had_errors(queue_id):
+    	errormsg = config.jobpooler.queue_manager.get_errors(queue_id)
+	# If clear signs of errors, return True for fatal_error
+	details = "Had errors"
+	if ("Processing errors" in errormsg) or ("Traceback" in errormsg):
+			return True, details
+
+	errormsg = errormsg.split("\n")
+	
+	# Look at each line of the errormsg -> are lines only warnings?
+	for i in range(len(errormsg)):
+		# enter if statement only if the line is a not a warning
+		if "setfacl" in errormsg[i]:
+			details = "Processed without errors"
+                elif ("slurm" in errormsg[i]) and (i==0):
+                        details = "Processed without errors" 
+		elif ('Warning' not in errormsg[i]) and ('WARNING' not in errormsg[i]) and (len(errormsg[i])>0) and ("setfacl" not in errormsg[i]):
+			if i==0:
+				return True, details
+			# enter only if the previous line is not a warning (numpy gives warning on two lines)
+			elif (i>0) and ('Warning' not in errormsg[i-1]) and ('WARNING' not in errormsg[i-1]):
+				return True, details
+		 
+
+	details = "Processed without errors"
+    else:
+	details = "Processed without errors"
+    return False, details	
+				
+	
+    
+
 def update_jobs_status_from_queue():
     """
     Updates Database entries for job processing according to the Jobs' Queue Status.
@@ -147,7 +187,9 @@ def update_jobs_status_from_queue():
             pass
         else:
             # Check if processing had errors
-            if config.jobpooler.queue_manager.had_errors(submit['queue_id']):
+            fatal_error,details = eval_errorlog(submit['queue_id'])
+
+            if fatal_error:
                 # Errors during processing...
                 errormsg = config.jobpooler.queue_manager.get_errors(submit['queue_id'])
 
@@ -174,7 +216,7 @@ def update_jobs_status_from_queue():
                                     "updated_at=? " \
                                "WHERE id=?")
                 arglists.append((errormsg, jobtracker.nowstr(), submit['id']))
-                print arglists
+                #print arglists
                 jobtracker.execute(queries, arglists)
             else:
                 # No errors. Woohoo!
@@ -183,15 +225,15 @@ def update_jobs_status_from_queue():
                 queries.append("UPDATE jobs " \
                                "SET status='processed', " \
                                     "updated_at='%s', " \
-                                    "details='Processed without errors' " \
+                                    "details='%s' " \
                                "WHERE id=%d" % \
-                            (jobtracker.nowstr(), submit['job_id']))
+                            (jobtracker.nowstr(), details,submit['job_id']))
                 queries.append("UPDATE job_submits " \
                                "SET status='processed', " \
                                     "updated_at='%s', " \
-                                    "details='Processed without error' " \
+                                    "details='%s' " \
                                "WHERE id=%d" % \
-                            (jobtracker.nowstr(), submit['id']))
+                            (jobtracker.nowstr(),details, submit['id']))
                 jobtracker.query(queries)
 
 def recover_failed_jobs():
@@ -211,20 +253,9 @@ def recover_failed_jobs():
         submits = jobtracker.query("SELECT * FROM job_submits " \
                                    "WHERE job_id=%d " \
                                    "ORDER BY id DESC" % job['id'])
+
         if len(submits) < config.jobpooler.max_attempts:
             # We can re-submit this job. 
-            if config.email.send_on_failures:
-                # Send error email
-                msg  = "Error! Job submit status: %s\n" % \
-                            submits[0]['status']
-                msg += "Job ID: %d, Job submit ID: %d\n\n" % \
-                        (job['id'], submits[0]['id'])
-                msg += str(submits[0]['details'])
-                msg += "\n*** Job will be re-submitted to the queue ***\n"
-                notification = mailer.ErrorMailer(msg, \
-                                subject="Processing failed!")
-                notification.send()
-
             # Set status to 'retrying'.
             jobtracker.query("UPDATE jobs " \
                              "SET status='retrying', " \
@@ -235,26 +266,6 @@ def recover_failed_jobs():
             jobpool_cout.outs("Job #%d will be retried." % job['id'])
         else:
             # We've run out of attempts for this job
-            if config.email.send_on_terminal_failures or \
-                    config.email.send_on_failures:
-                # Send error email
-                msg  = "Error! Job submit status: %s\n" % \
-                            str(submits[0]['status'])
-                msg += "Job ID: %d, Job submit ID: %d\n\n" % \
-                        (job['id'], submits[0]['id'])
-                msg += str(submits[0]['details'])
-                msg += "\n*** No more attempts for this job. ***\n"
-                msg += "*** Job will NOT be re-submitted! ***\n"
-                if config.basic.delete_rawdata:
-                    jobpool_cout.outs("Job #%d will NOT be retried. " \
-                                        "Data files will be deleted." % job['id'])
-                    msg += "*** Raw data files will be deleted. ***\n"
-                else:
-                    jobpool_cout.outs("Job #%d will NOT be retried. " % job['id'])
-                notification = mailer.ErrorMailer(msg, \
-                                subject="Processing job failed - Terminal")
-                notification.send()
-
             if config.basic.delete_rawdata:
                 pipeline_utils.clean_up(job['id'])
 
@@ -274,33 +285,57 @@ def submit_jobs():
     ***NOTE: Priority is given to jobs with status 'retrying'.
     """
     jobs = []
-    special_query = "SELECT distinct j.* FROM jobs AS j JOIN job_files AS jf " \
+
+    special_query1 = "SELECT distinct j.* FROM jobs AS j JOIN job_files AS jf " \
                     "ON j.id=jf.job_id JOIN files AS f ON f.id=jf.file_id WHERE " \
                     "j.status in ('new','retrying') AND f.filename LIKE " \
-                    "'%p2030.2013____.G__.%.fits' ORDER BY j.updated_at ASC"
+                    "'%p2030.2019____.G__.%.fits' ORDER BY j.updated_at ASC"
+
     special_query2 = "SELECT distinct j.* FROM jobs AS j JOIN job_files AS jf " \
                     "ON j.id=jf.job_id JOIN files AS f ON f.id=jf.file_id WHERE " \
                     "j.status in ('new','retrying') AND f.filename LIKE " \
-                    "'%p2030.20______.G__.%.fits' ORDER BY j.updated_at ASC"
-    jobs.extend(jobtracker.query(special_query))
-    print len(jobs),"in special query."
+                    "'%p2030.2018____.G__.%.fits' ORDER BY j.updated_at ASC"
+
+    special_query3 = "SELECT distinct j.* FROM jobs AS j JOIN job_files AS jf " \
+                    "ON j.id=jf.job_id JOIN files AS f ON f.id=jf.file_id WHERE " \
+                    "j.status in ('new','retrying') AND f.filename LIKE " \
+                    "'%p2030.2019____.G___.%.fits' ORDER BY j.updated_at ASC"
+
+    special_query4 = "SELECT distinct j.* FROM jobs AS j JOIN job_files AS jf " \
+                    "ON j.id=jf.job_id JOIN files AS f ON f.id=jf.file_id WHERE " \
+                    "j.status in ('new','retrying') AND f.filename LIKE " \
+                    "'%p2030.2018____.G___.%.fits' ORDER BY j.updated_at ASC"
+
+
     if not len(jobs):
+        jobs.extend(jobtracker.query(special_query1))
+        print len(jobs),"in inner galaxy (2019 data)."
         jobs.extend(jobtracker.query(special_query2))
-        print len(jobs),"in special query 2."
-    if not len(jobs):
+        print len(jobs),"in inner galaxy (2018 data)."
+    if len(jobs)<50:
+        jobs.extend(jobtracker.query(special_query3))
+        print len(jobs),"in outer galaxy (2019 data)."
+        jobs.extend(jobtracker.query(special_query4))
+        print len(jobs),"in outer galaxy (2018 data)."
+    if len(jobs)<50:
         jobs.extend(jobtracker.query("SELECT * FROM jobs " \
                                      "WHERE status='retrying' " \
                                      "ORDER BY updated_at ASC"))
         jobs.extend(jobtracker.query("SELECT * FROM jobs " \
                                      "WHERE status='new'" \
                                      "ORDER BY updated_at ASC"))
-    for job in jobs[:250]:
+
+    for job in jobs[:500]:
         if config.jobpooler.queue_manager.can_submit():
             try:
                 submit(job)
                 if config.jobpooler.submit_sleep:
                    time.sleep(config.jobpooler.submit_sleep)
-            except: pass
+                   #time.sleep(5)
+            except: 
+		fn = pipeline_utils.get_fns_for_jobid(job['id'])[0]
+		fn = fn.split('results/')[-1]
+		print "Skipping job-id: %d (%s)"%(job['id'],fn)
         else:
             break
 
@@ -342,15 +377,27 @@ def submit(job_row):
                 arglist.append( (jobtracker.nowstr(), job_row['id']) )
                 jobtracker.execute(queries, arglist)
                 return
-
     try:
         presubmission_check(fns)
-        outdir = get_output_dir(fns)
+        print "\t file has been checked"
+        outdir, created  = get_output_dir(fns)
+        if not created:
+            #current_usr = getpass.getuser()
+            #errormsg = "Permission denied to %s when attempting to create output directory %s"%(current_usr,outdir)
+            #f = open('/scratch/eparent/eparent/PALFA4/results/missing_permission.out','a')
+            #f.write(errormsg+'\n')
+            #f.close()
+            print "Permission issues while creating output directory, skipping"
+            pass 
+
         # Attempt to submit the job
         if job_row['status'] == 'retrying':
-            ppn=2
+	##            ppn=2
+            ppn=1
+            tfact = 1.25
         else: 
             ppn=1
+            tfact = 1.
         if config.jobpooler.alternative_submit_script:
             print "Submitting:", config.jobpooler.alternative_submit_script
             queue_id = config.jobpooler.queue_manager.submit\
@@ -358,8 +405,33 @@ def submit(job_row):
                          script=config.jobpooler.alternative_submit_script,\
                          ppn=ppn)
         else:
-            queue_id = config.jobpooler.queue_manager.submit\
-                        (fns, outdir, job_row['id'], ppn=ppn)
+            queue_id = config.jobpooler.queue_manager.submit(fns, outdir, job_row['id'], ppn=ppn,tfact=tfact)
+
+        msg  = "Submitted job to process:\n"
+        msg += "\tJob ID: %d, Queue ID: %s\n" % (job_row['id'], queue_id)
+        msg += "\tData file(s):\n"
+        for fn in fns:
+            msg += "\t%s\n" % fn
+        jobpool_cout.outs(msg)
+        queries = []
+        queries.append("INSERT INTO job_submits (" \
+                    "job_id, " \
+                    "queue_id, " \
+                    "output_dir, " \
+                    "status, " \
+                    "created_at, " \
+                    "updated_at, " \
+                    "details) " \
+                    "VALUES (%d,'%s','%s','%s','%s','%s','%s')" % \
+                    (job_row['id'], queue_id, outdir, 'running', \
+                    jobtracker.nowstr(), jobtracker.nowstr(), \
+                    'Job submitted to queue'))
+        queries.append("UPDATE jobs " \
+                     "SET status='submitted', " \
+                     "details='Job submitted to queue', updated_at='%s' WHERE id=%d" % (jobtracker.nowstr(), job_row['id']))
+        jobtracker.query(queries)
+
+
     except (FailedPreCheckError):
         # Error caught during presubmission check.
         exceptionmsgs = traceback.format_exception(*sys.exc_info())
@@ -369,27 +441,9 @@ def submit(job_row):
 
         jobpool_cout.outs("Job ID: %d failed presubmission check!\n\t%s\n" % \
                           (job_row['id'], exceptionmsgs[-1])) 
-        
-        if config.email.send_on_terminal_failures:
-            # Send error email
-            msg  = "Presubmission check failed!\n"
-            msg += "Job ID: %d\n\n" % \
-                    (job_row['id'])
-            msg += errormsg
-            msg += "\n*** Job has been terminally failed. ***\n"
-            msg += "*** Job will NOT be re-submitted! ***\n"
-            if config.basic.delete_rawdata:
-                jobpool_cout.outs("Job #%d will NOT be retried. " \
-                                    "Data files will be deleted." % job_row['id'])
-                msg += "*** Raw data files will be deleted. ***\n"
-            else:
-                jobpool_cout.outs("Job #%d will NOT be retried. " % job_row['id'])
-            notification = mailer.ErrorMailer(msg, \
-                            subject="Job failed presubmission check - Terminal")
-            notification.send()
 
-        if config.basic.delete_rawdata:
-            pipeline_utils.clean_up(job_row['id'])
+        #if config.basic.delete_rawdata:
+        #    pipeline_utils.clean_up(job_row['id'])
 
         queries = []
         arglist = []
@@ -448,38 +502,49 @@ def submit(job_row):
     except queue_managers.QueueManagerFatalError:
         # A fatal error occurred. Re-raise!
         raise
-    except:
+    except (MissingFilesError):
         # Unexpected error
-         sys.stderr.write("Unexpected error during job submission!\n")
-         raise 
-    else: 
-        # No error occurred
-        msg  = "Submitted job to process:\n" 
-        msg += "\tJob ID: %d, Queue ID: %s\n" % (job_row['id'], queue_id) 
-        msg += "\tData file(s):\n" 
-        for fn in fns:
-            msg += "\t%s\n" % fn
-        jobpool_cout.outs(msg)
+        exceptionmsgs = traceback.format_exception(*sys.exc_info())
+        errormsg = "Job ID: %d " % job_row['id']
+        errormsg += "Raw data files missing from /scratch/ area.!\n\n"
+        errormsg += "".join(exceptionmsgs)
         queries = []
+        arglist = []
         queries.append("INSERT INTO job_submits (" \
                             "job_id, " \
-                            "queue_id, " \
-                            "output_dir, " \
                             "status, " \
                             "created_at, " \
                             "updated_at, " \
                             "details) " \
-                      "VALUES (%d,'%s','%s','%s','%s','%s','%s')" % \
-                      (job_row['id'], queue_id, outdir, 'running', \
+                      "VALUES (?, ?, ?, ?, ?)" )
+        arglist.append( ( job_row['id'], 'submission_failed', \
                         jobtracker.nowstr(), jobtracker.nowstr(), \
-                        'Job submitted to queue'))
+                        errormsg) )
         queries.append("UPDATE jobs " \
-                       "SET status='submitted', " \
-                            "details='Job submitted to queue', " \
-                            "updated_at='%s' " \
-                       "WHERE id=%d" % \
-                    (jobtracker.nowstr(), job_row['id']))
-        jobtracker.query(queries)
+                       "SET status='failed',details='Error while submitting job',updated_at=? " \
+                       "WHERE id=?" )
+        arglist.append( (jobtracker.nowstr(), job_row['id']) )
+        jobtracker.execute(queries, arglist)
+        print errormsg
+    #except (MissingPermission):
+    #except:
+        # Do nothing for that job, go on to next job. 
+    #    pass
+        
+
+   # else: 
+        # No error occurred
+   #     msg  = "Submitted job to process:\n" 
+   #     msg += "\tJob ID: %d, Queue ID: %s\n" % (job_row['id'], queue_id) 
+   #     msg += "\tData file(s):\n" %  (job_row['id'], queue_id, outdir, 'running', \
+    #                    jobtracker.nowstr(), jobtracker.nowstr(), 'Job submitted to queue')
+   #     queries.append("UPDATE jobs " \
+   #                    "SET status='submitted', " \
+   #                         "details='Job submitted to queue', " \
+   #                         "updated_at='%s' " \
+   #                    "WHERE id=%d" % \
+   #                 (jobtracker.nowstr(), job_row['id']))
+   #     jobtracker.query(queries)
 
 
 def get_output_dir(fns):
@@ -518,19 +583,20 @@ def get_output_dir(fns):
         outdir = "%s_%d" % (baseoutdir, counter)
     
     # Make the directory immediately so the pipeline knows it's taken
-    os.makedirs(outdir)
-
-    # Send an email if our first choice for outdir wasn't available
-    if counter:
-        errormsg = "The first-choice output directory '%s' " \
-                    "already existed. Had to settle for '%s' " \
-                    "after %d tries. \n\n " \
-                    "Data files:\n " \
-                    "\t%s" % (baseoutdir, outdir, counter, "\n\t".join(fns))
-        notification = mailer.ErrorMailer(errormsg, \
-                        subject="Job outdir existance warning")
-        notification.send()
-    return outdir
+    try:
+        os.makedirs(outdir)
+        os.chmod(outdir,0777)
+        created = True
+        return outdir, created
+    except: 
+        current_usr = getpass.getuser()
+        errormsg = "Permission denied to %s when attempting to create output directory %s"%(current_usr,outdir)
+        f = open('/scratch/eparent/eparent/PALFA4/results/missing_permission.out','a')
+        f.write(errormsg+'\n')
+        f.close()
+        print errormsg
+        created = False
+        return outdir, created
 
 def presubmission_check(fns):
     """Check to see if datafiles meet the critera for submission.
@@ -538,22 +604,25 @@ def presubmission_check(fns):
     # Check that files exist
     missingfiles = [fn for fn in fns if not os.path.exists(fn)]
     if missingfiles:
-        errormsg = "The following files cannot be found:\n"
-        f = open('/home/patelc14/missing_files.txt','w')
-        for missing in missingfiles:
-            f.write(missing+'\n')
-            errormsg += "\t%s\n" % missing
-        f.close()
-        raise pipeline_utils.PipelineError(errormsg) # if files missing want to crash
+        errormsg = "The following files cannot be found:\n"  
+        with open ('~/missing_files.txt','w') as f: 
+            for missing in missingfiles:
+                f.write(missing+'\n')
+                errormsg += "\t%s\n" % missing
+        raise MissingFilesError(errormsg) # if files missing want to crash
+
     try:
         #for WAPP, check if coords are in table
         data = datafile.autogen_dataobj([fns[0]])
+	print isinstance(data, datafile.PsrfitsData)
         if not isinstance(data, datafile.PsrfitsData):
             errormsg  = "Data must be of PSRFITS format.\n"
             errormsg += "\tData type: %s\n" % type(data)
             raise FailedPreCheckError(errormsg)
     except (datafile.DataFileError, ValueError), e:
         raise FailedPreCheckError(e)
+
+
     #check if observation is too short
     limit = float(config.jobpooler.obstime_limit)
     obs_time = data.observation_time
@@ -569,6 +638,12 @@ def presubmission_check(fns):
 
 class FailedPreCheckError(pipeline_utils.PipelineError):
     """Error to raise when datafile has failed the presubmssion check.
+        Job should be terminally failed and Cornell (eventually) notified.
+    """
+    pass
+
+class MissingFilesError(pipeline_utils.PipelineError):
+    """Error to raise when datafiles are missing.
         Job should be terminally failed and Cornell (eventually) notified.
     """
     pass

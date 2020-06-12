@@ -27,7 +27,7 @@ from formats import ffacands
 from singlepulse.spio import split_parameters
 import config.basic
 
-
+debug.set_mode_on('upload')
 class Diagnostic(upload.Uploadable):
     """An abstract class to represent PALFA diagnostics.
     """

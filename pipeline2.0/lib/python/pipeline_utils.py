@@ -3,6 +3,8 @@ pipeline_utils.py
 
 Defines utilities that will be re-used by multiple modules/scripts
 in the pipeline package.
+
+Emilie Parent, July 2019 (adapted from P. Lazarus) 
 """
 import os
 import os.path
@@ -14,8 +16,25 @@ import optparse
 import time
 import datetime
 import string
+import shutil
+import glob
 
 import debug
+import jobtracker
+import config.basic 
+import config.processing
+import config.searching
+import shutil
+import tarfile
+import astro_utils
+
+import getpass
+from pwd import getpwuid
+from grp import getgrgid
+
+
+def get_file_ownership(filename):
+	return getpwuid(os.stat(filename).st_uid).pw_name
 
 class PipelineError(Exception):
     """A generic exception to be thrown by the pipeline.
@@ -47,7 +66,6 @@ def get_fns_for_jobid(jobid):
         Output:
             fns: A list of data files associated with the job ID.
     """
-    import jobtracker
 
     query = "SELECT filename " \
             "FROM files, job_files " \
@@ -71,6 +89,269 @@ def clean_up(jobid):
     for fn in fns:
         remove_file(fn)
 
+
+def archive_logs():
+    """
+	New - Emilie Parent, July 2019    
+	    Removes the logs files for a jobid that was sucessfully 
+            uploaded  to the database at Cornell. 
+            This is to avoid accumulating files, since the number of 
+            files limit is low on Beluga.
+	Input:
+            jobid: The ID corresponding to a row from the job_submits table.
+                   The files associated to this job will be removed. (job_id,
+	           unlike id, uniquely defines a beam.
+	Output:
+            logs_to_del: List of logs.ER and logs.OU files that can be deleted.
+ 
+    """
+    curdir = os.getcwd()
+    os.chdir(config.basic.qsublog_dir)
+
+    tar = tarfile.open('/project/ctb-vkaspi/PALFA4/archived_logs2.tar','a')
+
+    query = "SELECT * FROM job_submits WHERE status IN "\
+	    "('uploaded','processed') AND updated_at>'2019-08-01 00:00:00'"
+    rows = jobtracker.query(query)
+    queue_ids = [str(rows[i]['queue_id']+'.*') for i in range(len(rows))]
+
+    for q in queue_ids:
+	f = glob.glob(q)
+	if len(f)==2:
+		tar.add(f[0])
+		tar.add(f[1])
+		print "Added a job's logs to the archived logs"
+		os.remove(f[0])
+		os.remove(f[1])
+
+    tar.close()
+    os.chdir(curdir)
+
+
+def remove_logs(date='2019-07-01'):
+    """
+	New - Emilie Parent, July 2019    
+	    Removes the logs files for a jobid that was sucessfully 
+            uploaded  to the database at Cornell. 
+            This is to avoid accumulating files, since the number of 
+            files limit is low on Beluga.
+	Input:
+            date: look in the database for logs of jobs updated after that date (default = July 2019, i.e. on Beluga) 
+	Output:
+	    -
+ 
+    """
+    curdir = os.getcwd()
+    os.chdir(config.basic.qsublog_dir)
+
+    query1 = "SELECT id FROM jobs WHERE status='processed' AND details in ('Ready for upload','Processed without errors') and updated_at>'%s 00:00:00' ORDER BY id DESC"%date
+    query2 = "SELECT id FROM jobs WHERE status='uploaded' and updated_at>'%s 00:00:00' ORDER BY id DESC"%date
+    rows = jobtracker.query(query1)
+    rows +=jobtracker.query(query2)
+    job_ids = [str(r[0]) for r in rows]
+    k=0
+    for j in job_ids:
+	jsub = jobtracker.query("SELECT * FROM job_submits where job_id=%s ORDER BY id DESC"%j)
+	queue_ids = [str(s['queue_id'])+'.*' for s in jsub]
+	for q in queue_ids:
+		f = glob.glob(q)
+		if len(f)==2:
+			os.remove(f[0])
+			os.remove(f[1])
+			k+=1
+		elif len(f)==1:
+			os.remove(f[0])
+			k+=1
+    print "Removed logs of %d submitted jobs"%k
+    os.chdir(curdir)
+
+def change_job_status_jtdb(ROW, new_status, details='Errors with results files'):
+    """
+	New - Emilie Parent, July 2019
+	Called by move_results when the following error is encountered:
+		a job has the status "processed" in the jobtracking db, 
+		but it's result directory in scratch is empty. Weird. 
+	Input:
+		ROW:        a row from job_submits table
+		new_status: 'failed' should be provided as new status when used by move_results()
+		id:         id of the job (not job_id or queue_id)
+
+    """
+    
+    queries = []
+    
+    if new_status=='processing_failed' or new_status=='submission_failed' or new_status=='precheck_failed' or new_status=='upload_failed':
+	jobs_status='failed'
+    elif new_status=='processed' or 'uploaded':
+	jobs_status=new_status
+    elif new_status=='running':
+	jobs_status='submitted'
+
+    queries.append("UPDATE jobs " \
+             "SET status='%s', updated_at='%s', details='%s' " \
+             "WHERE id=%d" % (jobs_status, jobtracker.nowstr(),details, ROW['job_id']))
+
+    queries.append("UPDATE job_submits " \
+             "SET status='%s', updated_at='%s', details='%s' " \
+             "WHERE id=%d" % (new_status, jobtracker.nowstr(), details, ROW['id']))
+    jobtracker.query(queries)
+
+
+def go_copy_results(row, end_name, new_dir):
+    """
+	Step 2: copy the results from scratch to projects, and then remove initial copy on scratch
+    	This should solve the problem of having the username as the name of the group on projects 
+    """
+    allowed_usr = config.processing.users
+    current_usr = getpass.getuser()
+
+    try:
+	cp_cmd = "cp -r "+str(row['output_dir'])+'/* '+new_dir+'/'
+	subprocess.call(cp_cmd,shell=True)
+	rm_cmd = "rm -r "+str(row['output_dir'])
+	subprocess.call(rm_cmd,shell=True)
+
+	jobtracker.query("update job_submits set output_dir='%s' where job_id='%s'"%(new_dir,str(row['job_id'])))
+	change_job_status_jtdb(ROW=row, new_status = 'processed', details='Ready for upload')
+	print "Moved results to project area, and updated jtdb for: ", row['output_dir'].split('/results/')[-1]
+
+	path1 = os.path.split(new_dir)[0]
+	path2 = os.path.split(path1)[0]
+	path3 = os.path.split(path2)[0]
+
+	owner_newdir = get_file_ownership(new_dir)
+	owner1 = get_file_ownership(path1)
+	owner2 = get_file_ownership(path2)
+	owner3 = get_file_ownership(path3)
+
+	paths  = [new_dir,     path1,  path2,  path3]
+	owners = [owner_newdir,owner1, owner2, owner3]
+
+	for i in range(len(paths)):
+		if owners[i]==current_usr:
+			if i==0:
+				for user in allowed_usr:
+					cmd = "setfacl -R -m u:%s:rwx %s"%(user,paths[i])
+					subprocess.call(cmd,shell=True)
+			else:
+				for user in allowed_usr:
+					cmd = "setfacl -m u:%s:rwx %s"%(user,paths[i])
+					subprocess.call(cmd,shell=True)	
+
+	return '1'
+
+    except: 
+	print "Error while moving results from scratch to project ",\
+		"for beam: ", end_name, "queue_id=",row['queue_id']
+	path, dirs, files = next(os.walk(row['output_dir']))
+	if len(files)==0:
+		print "\t","Job's status is 'processed', scratch result directory exists but is empty.."
+		print "\t",'Changing job status in jobtracking database for "failed". To be retried.'
+		change_job_status_jtdb(ROW=row,new_status='failed')
+		return '0'
+				
+	else:
+		print "\t","Unknown error.. check it out manually."
+		print "Exiting "
+		sys.exit()
+
+
+
+
+def move_results():
+    """ 
+	New: Moves all result directories for which the job was successfully processed
+	from config.processing.base_results_directory to config.processing.base_final_results_dir 
+
+	 by Emilie Parent, July 2019   
+    """
+
+    query = "SELECT * FROM job_submits WHERE status='processed' AND output_dir like '/scratch%'"
+    rows = jobtracker.query(query)
+    
+    current_usr = getpass.getuser()
+    j = 0
+    skipped = 0
+    N = len(rows)
+    if rows:
+	print "Will attempt to move %d job results"%len(rows)
+    	for i,row in enumerate(rows):
+		owner_results = get_file_ownership(row['output_dir'])
+		if owner_results != current_usr:
+			print "	Wrong user: Owner is %s, current user is %s. Skipping."%(owner_results,current_usr)
+			skipped+=1
+			continue
+		end_name = str(row['output_dir']).split('results/')[1]
+		while end_name.endswith('/'):
+			end_name = end_name[:-1]
+ 
+		new_dir = str(config.processing.base_final_results_dir)+end_name
+		if i%10==0:
+			print i,' / ',N
+		# The results have already been moved to projects area
+		if os.path.exists(row['output_dir']) and ('projects' in row['output_dir']):
+			pass
+
+		# there is an existing result directory in the scratch 
+		# and the job is processed : to be moved to project area
+		elif os.path.exists(row['output_dir']) and ('scratch' in row['output_dir']):
+			# Step 1: try to create the new result directory in projects area
+			try:
+				tar = glob.glob(row['output_dir']+'/p2030*00.tgz')
+				if len(tar)==0 and not os.path.exists(new_dir):
+					#Problem: did not produce all files needed
+					print "Incomplete processing for %s, " \
+					"changing status to 'failed'"%end_name 
+					change_job_status_jtdb(row, new_status='processing_failed', details='Errors with results files')
+					pass
+					
+				os.makedirs(new_dir)
+				add = go_copy_results(row, end_name, new_dir)
+				j+=int(add)
+
+			except:
+				print "Beam ",end_name,"  already has a result ",\
+					"directory in project area? Checking .. "
+			
+				if not os.path.exists(new_dir):
+					print "\t","No, it does not exist.",\
+						"Check manually for possible problems,",\
+					"queue_id = ",row['queue_id']
+					# that's a weird case: something is wrong
+					tar1 = glob.glob(row['output_dir']+'/p2030*00.tgz')
+					tar2 = glob.glob(row['output_dir']+'/p2030*.fits')
+					if (len(tar1)==0 or len(tar2)==0) and not os.path.exists(new_dir):
+						print "Incomplete processing for %s, " \
+						"changing status to 'failed'"%end_name
+						change_job_status_jtdb(row, new_status='processing_failed', details='Errors with results files')
+						
+					
+
+				else:
+					path, dirs, files = next(os.walk(new_dir))
+					if len(files)==0:
+						print "\t","Directory already exists in projects ",\
+						"but is empty: copying results"
+						add = go_copy_results(row, end_name, new_dir)
+						j+=int(add)
+					else:
+						# should check why there is stuff in that directory, 
+						# and yet the original on scratch has not been deleted.. 
+						print "\t","Directory already exists AND not empty: ",\
+							"not copying over beam ",end_name
+
+		# there is no result directory in either projects or scratch
+		# already uploaded, or some problem happended.
+		else:
+			print "Beam ",end_name,": no existing result directory in /scratch"
+			change_job_status_jtdb(row, new_status='processing_failed', details='Errors with results files')
+			pass
+			
+    if j>0 or skipped>0:
+    	print '\n',"Moved %s processed beams to project area (skipped %s). "%(str(j),str(skipped)),"\t -> Ready for upload.",'\n'
+
+
+
 def remove_file(fn):
     """Delete a file (if it exists) and mark it as deleted in the 
         job-tracker DB.
@@ -81,7 +362,6 @@ def remove_file(fn):
         Outputs:
             None
     """
-    import jobtracker
     if os.path.exists(fn):
         os.remove(fn)
         print "Deleted: %s" % fn
@@ -105,10 +385,7 @@ def can_add_file(fn, verbose=False):
             can_add: Boolean value. True if the file should be added. 
                     False otherwise.
     """
-    import jobtracker
     import datafile
-    import config.processing
-
     try:
         datafile_type = datafile.get_datafile_type([fn])
     except datafile.DataFileError, e:
@@ -224,10 +501,8 @@ def get_zaplist_tarball(force_download=False, no_check=False, verbose=False):
         Outputs:
             Name with full path of zaplist tarball.
     """
-    import config.processing
-    import config.searching
     import CornellFTP
-    import tarfile
+
 
     if config.searching.use_radar_clipping:
         zaptar_basename = "PALFA4_zaplists_noradar.tar.gz"
@@ -300,10 +575,7 @@ def find_zaplist_in_tarball(filename, verbose=False):
  
         Output: zaplist - name of the zaplist in the tarball.
     """
-    import config.processing
     import datafile
-    import astro_utils
-
     fns = [ filename ]
     filetype = datafile.get_datafile_type(fns)
     parsed = filetype.fnmatch(fns[0]).groupdict()

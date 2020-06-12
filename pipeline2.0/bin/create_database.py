@@ -7,6 +7,9 @@ import config.background
 """
 This script creates sqlite3 clean database structure to be used by Pipeline2.0
 """
+#
+# Note: 'job_id' key in job_submits is the same as 'id' key in jobs
+#
 creates = []
 
 

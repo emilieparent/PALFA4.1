@@ -95,8 +95,10 @@ class Database:
                             % (db, DEFAULTDB))
             db = 'default'
         try:
+	    print DATABASES[db]
             self.conn = pyodbc.connect(autocommit=autocommit, **DATABASES[db])   
             self.cursor = self.conn.cursor()
+	    print "Successfully connected"
         except:
             msg  = "Could not establish database connection.\n"
             msg += "\tCheck your connection options:\n"

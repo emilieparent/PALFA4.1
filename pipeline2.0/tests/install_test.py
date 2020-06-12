@@ -36,12 +36,14 @@ BUILTIN = ["datetime", \
            "xml.dom.minidom"]
 
 THIRDPARTY = [("presto", "Part of PRESTO - Available at: https://github.com/scottransom/presto"), \
-              ("PBSQuery", "Only needed if using PBS queue manager - Available at: http://subtrac.sara.nl/oss/pbs_python/wiki/TorqueInstallation"), \
+##              ("PBSQuery", "Only needed if using PBS queue manager - Available at: http://subtrac.sara.nl/oss/pbs_python/wiki/TorqueInstallation"), \
+              ("pyslurm","Available at: https://github.com/PySlurm/pyslurm"),\
               ("matplotlib", "Available at: http://matplotlib.sourceforge.net/"), \
               ("matplotlib.pyplot", "Part of matplotlib - Available at: http://matplotlib.sourceforge.net/"), \
               ("numpy", "Available at: http://numpy.scipy.org/"), \
               ("pyodbc", "Available at: http://code.google.com/p/pyodbc/"), \
-              ("pyfits", "Available at: http://www.stsci.edu/resources/software_hardware/pyfits"), \
+##              ("pyfits", "Available at: http://www.stsci.edu/resources/software_hardware/pyfits"), \   DEPRECATED - USE ASTROPY.IO.FITS
+              ("astropy.io.fits", "Version compatible with python 2.7 available at: https://pypi.org/project/astropy/2.0.12/"), \
               ("prepfold", "Part of PRESTO - Available at: https://github.com/scottransom/presto"), \
               ("psr_utils", "Part of PRESTO - Available at: https://github.com/scottransom/presto"), \
               ("M2Crypto", "Available at: http://chandlerproject.org/Projects/MeTooCrypto"), \

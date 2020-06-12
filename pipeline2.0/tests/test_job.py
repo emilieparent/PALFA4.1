@@ -85,7 +85,8 @@ def check_dirs():
 
 
 def check_modules():
-    to_test = ["numpy", "pyfits", "psr_utils", "presto", "sifting"]
+##    to_test = ["numpy", "pyfits", "psr_utils", "presto", "sifting"]
+    to_test = ["numpy", "astropy.io.fits", "psr_utils", "presto", "sifting"]
     errors = ""
     for m in to_test:
         print "Testing %s" % m

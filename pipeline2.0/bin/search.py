@@ -20,7 +20,15 @@ import astro_utils.calendar
 
 import config.processing
 import pipeline_utils
+import getpass
 
+warnings.filterwarnings("ignore", message="Can't find the .* column")
+warnings.filterwarnings("ignore", message=".*NSUBOFFS reports 0 previous rows.*")
+warnings.filterwarnings("ignore", message="Channel spacing changes in file 0!")
+
+#Cluster users that operates the pipeline
+allowed_usr = config.processing.users
+current_usr = getpass.getuser()
 
 def warn_to_stdout(message, category, filename, lineno, file=None, line=None):
     """A function to replace warnings.showwarning so that warnings are
@@ -88,10 +96,10 @@ def init_workspace():
         - Create results directory.
         - Return 2-tuple (working directory, results directory).
     """
-    if config.processing.use_pbs_subdir:
-        pbs_job_id = os.getenv("PBS_JOBID")
+    if config.processing.use_slurm_subdir:
+        slurm_job_id = os.getenv("SLURM_JOBID")         
         base_working_dir = os.path.join(config.processing.base_working_directory, \
-                                        pbs_job_id) 
+                                        slurm_job_id) 	
     else:
         base_working_dir = config.processing.base_working_directory
 
@@ -140,6 +148,7 @@ def set_up():
     # Copy data files locally
     for fn in fns:
         system_call("rsync -auvl %s %s" % (fn, workdir))
+
     fns = sorted([os.path.split(fn)[-1] for fn in fns])
 
     return fns, workdir, resultsdir, outdir
@@ -234,6 +243,26 @@ def copy_results(resultsdir, outdir):
     system_call("mkdir -m 770 -p %s" % outdir)
     system_call("rsync -auvl --chmod=Dg+rX,Fg+r %s/ %s" % (resultsdir, outdir))
 
+    path1 = os.path.split(outdir)[0]
+    path2 = os.path.split(path1)[0]
+    path3 = os.path.split(path2)[0]
+
+    owner_newdir = pipeline_utils.get_file_ownership(outdir)
+    owner1 = pipeline_utils.get_file_ownership(path1)
+    owner2 = pipeline_utils.get_file_ownership(path2)
+    owner3 = pipeline_utils.get_file_ownership(path3)
+
+    paths  = [outdir,     path1,  path2,  path3]
+    owners = [owner_newdir,owner1, owner2, owner3]
+    for i in range(len(paths)):
+	if owners[i]==current_usr:
+		for user in allowed_usr:
+			cmd = "setfacl -m u:%s:rwx %s"%(user,paths[i])
+			subprocess.call(cmd,shell=True)
+	else: 
+		print "Warning: current user is not the owner of %s, can't change permissions"%paths[i]
+ 
+
 
 def clean_up(workdir, resultsdir):
     print "Cleaning up..."
@@ -264,7 +293,6 @@ def main():
         # Remove working directory and output directory
         # even if an error occurred
         clean_up(workdir, resultsdir)
-
 
 if __name__=='__main__':
     main()

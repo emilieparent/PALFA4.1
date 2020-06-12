@@ -12,10 +12,9 @@ import config.jobpooler
 
 # Submit 'test_job.py' to the queue.
 print "Submitting job to queue"
-queue_id = config.jobpooler.queue_manager.submit(datafiles=['testfn1', 'testfn2'], \
-                                        outdir='/fake/out/dir/', job_id='testjob',\
-                                        script=os.path.join(config.basic.pipelinedir, \
-                                                            'tests', 'test_job.py'))
+queue_id = config.jobpooler.queue_manager.submit(datafiles=['/home/eparent/scratch/eparent/PALFA4/rawdata/p2030.20131229.G59.90-00.94.C.b5.00000.fits', '/home/eparent/scratch/eparent/PALFA4/rawdata/p2030.20180705.G44.14+02.98.N.b0.00000.fits'], \
+                                        outdir='/home/eparent/projects/rrg-vkaspi-ad/PALFA4_test/logs/qsublog', job_id='testjob',\
+                                        script=os.path.join(config.basic.pipelinedir, 'tests', 'test_job.py'),printcmd=True)
 count = 1
 sys.stdout.write("\rWaiting for job to terminate     ")
 sys.stdout.flush()

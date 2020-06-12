@@ -1,25 +1,5 @@
 # Load system software modules
-module load gcc/7.3.0 openmpi/3.1.2 python/2.7.14 scipy-stack/2019a 
-module load fftw/3.3.8  pgplot/5.2 cfitsio/3.42 unixodbc/2.3.7
-
-# set localization since some programs like to complain about it
-export LANGUAGE=en_US.UTF-8
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
-
-# set env variables for path to our software
-export SOFTWARE=/lustre03/project/6007521/software
-export TEMPO=$SOFTWARE/src/tempo
-export PGPLOT_DIR=$EBROOTPGPLOT
-export PGPLOT_DEV="/XW"
-export PRESTO=$SOFTWARE/src/presto
-
-#export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PGPLOT_DIR:$PRESTO/lib
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PRESTO/lib:$EBROOTPGPLOT/lib
-export PATH=$PATH:$SOFTWARE/bin:$PRESTO/bin
-export PYTHONPATH=$PYTHONPATH:$PRESTO/lib/python
-
-source $SOFTWARE/pulsarenv/bin/activate
+source /lustre03/project/6007521/software/common2rc
 
 # set env variables for path to our software
 export MKL_THREADING_LAYER=GNU
@@ -27,7 +7,7 @@ export PKG_CONFIG_PATH=/cvmfs/soft.computecanada.ca/easybuild/software/2017/avx5
 
 #######
 # set projects - PALFA related!
-export PROJECT=~/projects/rrg-vkaspi-ad/PALFA4	#!!!!!!!! 
+export PROJECT=~/projects/rrg-vkaspi-ad/PALFA4
 export RATINGS=$PROJECT/software/ratings2
 export MYPRESTO=$PROJECT/software/presto
 
@@ -36,11 +16,10 @@ export MYPRESTO=$PROJECT/software/presto
 #export ODBCINI=$PROJECT/odbc.ini
 
 # add to paths 
-#export PATH=/home/eparent/packages/bin:$PROJECT/software/bin:$PATH:$PROJECT/software/FFA_PALFA:$PROJECT/software/pipeline2.0/bin:$RATINGS
 export PATH=$HOME/packages/bin:$PROJECT/software/bin:$PATH:$PROJECT/software/FFA_PALFA:$PROJECT/software/pipeline2.0/bin:$RATINGS
-export PYTHONPATH=$HOME/packages/bin:$PROJECT/software/lib/python2.7/site-packages:$MYPRESTO:$PROJECT/software/bin:$PROJECT/software/pipeline2.0/lib/python:$PYTHONPATH:$PROJECT/software:$PROJECT/software/FFA_PALFA:$RATINGS:$RATINGS/raters:$PROJECT/software/PSRFITS_SPECTRA:$PROJECT/software/ubc_AI:$SOFTWARE/src/presto/bin/
-#TEST:
 export LD_LIBRARY_PATH=$HOME/packages/lib:$LD_LIBRARY_PATH:/lustre03/project/6007521/software/lib/
+export PYTHONPATH=$HOME/packages/bin:$PROJECT/software/lib/python2.7/site-packages:$MYPRESTO:$PROJECT/software/bin:$PROJECT/software/pipeline2.0/lib/python:$PYTHONPATH:$PROJECT/software:$PROJECT/software/FFA_PALFA:$RATINGS:$RATINGS/raters:$PROJECT/software/PSRFITS_SPECTRA:$PROJECT/software/ubc_AI:$SOFTWARE/src/presto/bin/:$SOFTWARE/pulsarenv/lib/python2.7/site-packages/presto
+
 
 LS_COLORS=$LS_COLORS:'di=1;37:fi=33'
 export LS_COLORS

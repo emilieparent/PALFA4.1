@@ -7,7 +7,7 @@ import config.basic
 max_jobs_running = 650 # Maximum number of running jobs: 1000 on Beluga
 max_jobs_queued = 850  # Can be kept small so that you don't hog the queue (>=1)
 max_jobs_cluster = 1000
-max_attempts = 15 #maximum number of times a job is attempted due to errors
+max_attempts = 20 #maximum number of times a job is attempted due to errors
 submit_sleep = 2 #time for jobpooler to sleep after submitting a job in seconds (prevents overloading queue manager)
 obstime_limit = 60 # lower limit in seconds of observation time for jobs to be submitted
 

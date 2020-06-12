@@ -9,6 +9,35 @@ import config.jobpooler
 
 """
 This script allows safe/force-fail removal of the job from the Pipeline
+
+	elif options.upload_fail:
+            queries.append("UPDATE job_submits " \
+                           "SET status='upload_failed', " \
+                                "updated_at='%s', " \
+                                "details='Header ID already in DB at Cornell' " \
+                           "WHERE id=%d" % \
+                            (jobtracker.nowstr(), jobsubmit_id))
+            queries.append("UPDATE jobs " \
+                         "SET status='upload_failed', " \
+                                "updated_at='%s', " \
+                                "details='Header ID already in DB at Cornell' " \
+                           "WHERE id=%d" % \
+                            (jobtracker.nowstr(), job_submits[0]['job_id']))
+
+	elif options.proc_fail:
+            queries.append("UPDATE job_submits " \
+                           "SET status='processing_failed', " \
+                                "updated_at='%s', " \
+                                "details='No files to upload - manually failed' " \
+                           "WHERE id=%d" % \
+                            (jobtracker.nowstr(), job_submits[0]['id']))
+            queries.append("UPDATE jobs " \
+                         "SET status='failed', " \
+                                "updated_at='%s', " \
+                                "details='No files to upload - manually failed' " \
+                           "WHERE id=%d" % \
+                            (jobtracker.nowstr(), job_submits[0]['job_id']))
+
 """
 
 def main():
@@ -32,9 +61,12 @@ def main():
             sys.stderr.write("Bad number (%d) of job submissions for job submit " \
                                 "ID provided: %s\nSkipping...\n" % (len(job_submits), jobsubmit_id))
             continue
+	
         elif config.jobpooler.queue_manager.is_running(job_submits[0]['queue_id']):
             isrunning = True
         elif job_submits[0]['status'] == 'processed' and options.also_processed:
+            isrunning = False
+	elif job_submits[0]['status'] == 'processed' and options.upload_fail:
             isrunning = False
         else:
             sys.stderr.write("The job submit ID/queue ID provided is invalid. " \
@@ -52,13 +84,20 @@ def main():
                                 "updated_at='%s', " \
                                 "details='Job was manually failed' " \
                            "WHERE id=%d" % \
-                            (jobtracker.nowstr(), job_submits[0]['id']))
+                            (jobtracker.nowstr(), jobsubmit_id))
             queries.append("UPDATE jobs " \
                            "SET status='failed', " \
                                 "updated_at='%s', " \
                                 "details='Job was manually failed' " \
                            "WHERE id=%d" % \
                             (jobtracker.nowstr(), job_submits[0]['job_id']))
+        elif options.upload_fail:
+            row = jobtracker.query("select * from job_submits where id=%s" % jobsubmit_id,fetchone=True)
+            pipeline_utils.change_job_status_jtdb(row,'processing_failed')
+        elif options.proc_fail:
+            row = jobtracker.query("select * from job_submits where id=%s" % jobsubmit_id,fetchone=True)
+            pipeline_utils.change_job_status_jtdb(row,'processing_failed')
+
         else:
             queries.append("DELETE FROM job_submits " \
                            "WHERE id=%d" % job_submits[0]['id'])
@@ -107,5 +146,16 @@ if __name__ == "__main__":
                              "stopped/failed. (Default: don't stop/fail 'processed' " \
                              "job submits).", \
                         default=False)
+    parser.add_option('--upload-fail', dest='upload_fail', action='store_true', \
+                        help="Updates jobs and job_submits (must provide job_submits.id "\
+			     "via '--submit-id' option) to status='upload_failed' when " \
+                             "that job has already been assigned a HeaderID in DB at" \
+			     "Cornell. Alternative to --also-processed option (Default: " \
+			     "don't update).", default=False)
+    parser.add_option('--proc-fail', dest='proc_fail', action='store_true', \
+                        help="Updates jobs and job_submits (must provide job_submits.id "\
+			     "via '--submit-id' option) to status='processing_failed' when " \
+                             "that job has failed (likely because of errors when writing final results" \
+			     " (Default: don't update).", default=False)
     options, args = parser.parse_args()
     main()

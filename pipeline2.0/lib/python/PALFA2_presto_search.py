@@ -1,4 +1,8 @@
 #!/usr/bin/env python
+"""
+Modified version, specific for PALFA jobs running on Beluga 
+Emilie Parent, July 2019
+"""
 import glob
 import os
 import os.path
@@ -49,6 +53,8 @@ sifting.harm_pow_cutoff = config.searching.sifting_harm_pow_cutoff
 
 debug = 0
 
+#Cluster users that operates the pipeline
+users = config.processing.users
 
 def get_baryv(ra, dec, mjd, T, obs="AO"):
    """
@@ -62,7 +68,7 @@ def get_baryv(ra, dec, mjd, T, obs="AO"):
    nn = len(tts)
    bts = np.zeros(nn, dtype=np.float64)
    vel = np.zeros(nn, dtype=np.float64)
-   presto.barycenter(tts, bts, vel, nn, ra, dec, obs, "DE200")
+   presto.barycenter(tts, bts, vel, ra, dec, obs, "DE200")
    avgvel = np.add.reduce(vel)/nn
    return avgvel
 
@@ -351,14 +357,13 @@ class obs_info:
         self.zerodm = zerodm
  
         # which searches to perform
-        self.search_pdm = True
-        self.search_sp = True
-        self.search_ffa = True
+        self.search_pdm = True			
+        self.search_sp = True			 
+        self.search_ffa = True		
 
         self.filenms = filenms
         self.filenmstr = ' '.join(self.filenms)
         self.basefilenm = os.path.split(filenms[0])[1].rstrip(".fits")
-        
         # Where to dump all the results.
         # Put zerodm results in a separate folder so they don't overwrite
         # the non-zerodm results
@@ -367,12 +372,10 @@ class obs_info:
             self.basefilenm = self.basefilenm + '_zerodm'
         else:
             self.outputdir = resultsdir
-
         # Read info from PSRFITS file
         data = datafile.autogen_dataobj(self.filenms)
         # Correct positions in data file headers
-        data.update_positions()
-        
+        data.update_positions()     
         spec_info = data.specinfo
         self.backend = spec_info.backend
         self.MJD = spec_info.start_MJD[0]
@@ -401,7 +404,9 @@ class obs_info:
         self.numrows = np.sum(spec_info.num_subint) 
        
         # Determine the average barycentric velocity of the observation
-        self.baryv = get_baryv(self.ra_string, self.dec_string,
+##        self.baryv = get_baryv(self.ra_string, self.dec_string,
+##                               self.MJD, self.T, obs="AO")
+        self.baryv = presto.get_baryv(self.ra_string, self.dec_string,
                                self.MJD, self.T, obs="AO")
         # Figure out which host we are processing on
         self.hostname = socket.gethostname()
@@ -440,6 +445,7 @@ class obs_info:
             The dedispersion plans are hardcoded and
             depend on the backend data were recorded with.
         """
+
         # Generate dedispersion plan
         self.ddplans = []
 
@@ -475,6 +481,7 @@ class obs_info:
             self.ddplans.append(dedisp_plan( 965.2, 10.0,    76,      1,     96,       25 ))
         else:
             raise ValueError("No dediserpsion plan for unknown backend (%s)!" % self.backend)
+
         
 
     def write_report(self, filenm):
@@ -570,13 +577,14 @@ def main(filenms, workdir, resultsdir):
 
     # Change to the specified working directory
     os.chdir(workdir)
+
     job = set_up_job(filenms, workdir, resultsdir)
     
     print "\nBeginning PALFA search of %s" % (', '.join(job.filenms))
     print "UTC time is:  %s"%(time.asctime(time.gmtime()))
-    
+
     try:
-        search_job(job)
+        zaplistfn, radarlist_fn = search_job(job)
     except:
         print "***********************ERRORS!************************"
         print "  Search has been aborted due to errors encountered."
@@ -591,11 +599,11 @@ def main(filenms, workdir, resultsdir):
         zerodm_job = set_up_job(filenms, workdir, resultsdir, zerodm=True, \
                                 search_pdm=config.searching.zerodm_periodicity, \
                                 search_sp=config.searching.zerodm_singlepulse, \
-                                search_ffa=config.searching.zerodm_ffa) ##### remove this line. not doing zero-dm-ing for ffa 
-
+                                search_ffa=config.searching.zerodm_ffa) 
         # copy zaplist from non-zerodm job to zerodm job workdir
-        zaplist = glob.glob(os.path.join(job.outputdir,'*.zaplist'))[0]
-        shutil.copy(zaplist,zerodm_job.workdir)
+        #zaplist = glob.glob(os.path.join(job.outputdir,'*.zaplist'))[0]
+        shutil.copy(zaplistfn,zerodm_job.workdir)
+        shutil.copy(radarlist_fn,zerodm_job.workdir)
 
         # copy radar samples list from non-zerodm job to zerodm job workdir (if exists)
         if config.searching.use_radar_clipping:
@@ -606,11 +614,11 @@ def main(filenms, workdir, resultsdir):
         # copy raw data file to zerodm workdir
         for fn in filenms:
             shutil.copy(fn,zerodm_job.workdir)
-
+            
         os.chdir(zerodm_job.workdir)
 
         try:
-            search_job(zerodm_job)
+            zaplistfn, radarlist_fn = search_job(zerodm_job)
         except:
             print "***********************ERRORS!************************"
             print "  Search has been aborted due to errors encountered."
@@ -619,7 +627,7 @@ def main(filenms, workdir, resultsdir):
             raise
         finally:
             clean_up(zerodm_job)
-            # Write the job report for zerodm job
+            #Write the job report for zerodm job
             zerodm_job.total_time = time.time() - zerodm_job.total_time
             zerodm_job.write_report(os.path.join(zerodm_job.outputdir, zerodm_job.basefilenm+".report"))
             job.zerodm_time = zerodm_job.total_time
@@ -646,12 +654,10 @@ def set_up_job(filenms, workdir, resultsdir, zerodm=False, \
                             "(%.2f s < %.2f s)" % \
                             (job.T, config.searching.low_T_to_search))
     job.total_time = time.time()
-    
     # Make sure the output directory (and parent directories) exist
     try:
         os.makedirs(job.outputdir)
     except: pass
-
     if zerodm:
         zerodm_workdir = os.path.join(workdir,'zerodm')
         os.mkdir(zerodm_workdir)
@@ -665,16 +671,15 @@ def set_up_job(filenms, workdir, resultsdir, zerodm=False, \
     job.search_ffa = search_ffa
 
     # Create a directory to hold all the subbands
-    if config.processing.use_pbs_subdir:
-        pbs_job_id = os.getenv("PBS_JOBID")
-        base_tmp_dir = os.path.join(config.processing.base_tmp_dir, \
-                                    pbs_job_id) 
+    if config.processing.use_slurm_subdir:
+        slurm_job_id = os.getenv("SLURM_JOBID")
+        base_tmp_dir = os.path.join(config.processing.base_tmp_dir, slurm_job_id) 
     else:
         base_tmp_dir = config.processing.base_tmp_dir
 
     job.tempdir = tempfile.mkdtemp(suffix="_tmp", prefix="PALFA_", \
                                    dir=base_tmp_dir)
-    
+
     #####
     # Print some info useful for debugging
     print "Initial contents of workdir (%s): " % job.workdir
@@ -829,10 +834,12 @@ def ffa_search_pass(job,dmstrs):
             basenm = os.path.join(job.tempdir, job.basefilenm+"_DM"+dmstr)
             datnm = basenm+".dat"
             cmd = "ffa.py %s"%(datnm)
-            job.ffa_time += timed_execute(cmd)
             try:
+	        job.ffa_time += timed_execute(cmd)
                 shutil.move(basenm+"_cands.ffa", job.workdir)
-            except: pass
+            except: 
+		print "Encountered errors while running FFA at DM=",dmstr
+		pass
 
 
 def sift_periodicity(job,dmstrs):
@@ -876,9 +883,6 @@ def sift_periodicity(job,dmstrs):
         all_accel_cands.write_cand_report(job.basefilenm+".accelcands.report")
         timed_execute("gzip --best %s" % job.basefilenm+".accelcands.report")
 
-        # Moving of results to resultsdir now happens in clean_up(...)
-        # shutil.copy(job.basefilenm+".accelcands", job.outputdir)
-
     job.sifting_time = time.time() - job.sifting_time
 
     return all_accel_cands
@@ -913,14 +917,23 @@ def sift_singlepulse(job):
                     job.basefilenm+"_DMs%s_singlepulse.ps" % dmrangestr)
 
     # Do singlepulse grouping (Chen Karako's code) and waterfalling (Chitrang Patel's code) analysis
-    if config.searching.sp_grouping and job.masked_fraction < 0.2:
+    if config.searching.sp_grouping and job.masked_fraction < 0.4:
         job.sp_grouping_time = time.time()
         #Group_sp_events.main()
         cmd = "rrattrap.py --use-configfile --use-DMplan --vary-group-size --inffile %s *.singlepulse" % \
               (job.basefilenm + "_rfifind.inf") 
         job.sp_grouping_time += timed_execute(cmd)
-
-        cmd = "make_spd.py --groupsfile groups.txt --maskfile %s --bandpass --save-mem --show-ts %s *.singlepulse" % \
+        spfiles = glob.glob('*.singlepulse')
+        print "NUMBER OF SINGLEPULSE FILES: %d"%len(spfiles)
+        groupsfile = glob.glob('groups.txt')[0]
+        fgroupfile = open(groupsfile,'r').readlines()
+        print "NUMBER OF lINES IN GROUPS FILE: %d"%len(fgroupfile)
+        if len(fgroupfile)<4000:
+            print "CONTENT OF GROUPS FILE:"
+            for fgf in fgroupfile:
+                print fgf
+        
+        cmd = "make_spd.py --groupsfile groups.txt --mask --maskfile %s --bandpass --show-ts %s *.singlepulse" % \
               (job.basefilenm + "_rfifind.mask", job.filenmstr)
         job.sp_grouping_time += timed_execute(cmd)
 
@@ -1016,6 +1029,9 @@ def search_job(job):
     job.zaplist = glob.glob("*.zaplist")[0]
     print "Using %s as zaplist" % job.zaplist
 
+    zaplistfn = glob.glob(os.getcwd()+'/*.zaplist')[0]
+    radarlist_fn = glob.glob(os.getcwd()+'/*merged_radar_samples.txt')[0]
+
     # Use whatever *_radar_samples.txt is found in the current directory
     if config.searching.use_radar_clipping:
         radar_list = glob.glob("*merged_radar_samples.txt")[0]
@@ -1032,13 +1048,20 @@ def search_job(job):
     cmd = "rfifind %s -time %.17g -o %s %s" % \
           (config.searching.datatype_flag, config.searching.rfifind_chunk_time, 
            job.basefilenm, job.filenmstr)
-    job.rfifind_time += timed_execute(cmd, stdout="%s_rfifind.out" % job.basefilenm)
+
+    job.rfifind_time += timed_execute(cmd, stdout="%s_rfifind.out" % job.basefilenm)		
     maskfilenm = job.basefilenm + "_rfifind.mask"
     # Find the fraction that was suggested to be masked
     # Note:  Should we stop processing if the fraction is
     #        above some large value?  Maybe 30%?
     job.masked_fraction = find_masked_fraction(job)
     
+
+    # New - stop processing if masked fraction too large.
+    if job.masked_fraction > 0.80:
+	raise PrestoError("Stopping processing, masked fraction too large (%s percent)"% \
+		(str(100*job.masked_fraction)))
+	
     # Iterate over the stages of the overall de-dispersion plan
     dmstrs = []
     for ddplan in job.ddplans:
@@ -1125,7 +1148,6 @@ def search_job(job):
     for fn in os.listdir(job.tempdir):
         print "    %s" % fn
     sys.stdout.flush()
-    #####
 
     if job.search_pdm and job.search_ffa:
         fold_periodicity_candidates(job,all_accel_cands, ffa_cands)
@@ -1141,10 +1163,8 @@ def search_job(job):
     for fn in os.listdir(job.tempdir):
         print "    %s" % fn
     sys.stdout.flush()
-    #####
     
     # Now step through the .ps files and convert them to .png and gzip them
-
     psfiles = glob.glob("*.ps")
     psfiles_rotate = glob.glob("*.pfd.ps") + glob.glob("*_rfifind.ps")
 
@@ -1161,19 +1181,22 @@ def search_job(job):
         timed_execute("convert -quality 90 %s -background white -trim -flatten %s" % \
                             (psfile+"[0]", psfile[:-3]+".png"))
         timed_execute("gzip "+psfile)
-    
+   
+
     # Print some info useful for debugging
-    print "Contents of workdir (%s) after conversion: " % job.workdir
+    print "Contents of workdir (%s) after conversion: "%job.workdir
     for fn in os.listdir(job.workdir):
         print "    %s" % fn
-    print "Contents of resultsdir (%s) after conversion: " % job.outputdir
+    print "Contents of resultsdir (%s) after conversion: "%job.outputdir
     for fn in os.listdir(job.outputdir):
         print "    %s" % fn
-    print "Contents of job.tempdir (%s) after conversion: " % job.tempdir
+    print "Contents of job.tempdir (%s) after conversion: "%job.tempdir
     for fn in os.listdir(job.tempdir):
         print "    %s" % fn
     sys.stdout.flush()
-    #####
+    print "\n"," Done searching. Now starting final cleanup"," \n" 
+    
+    return zaplistfn, radarlist_fn
 
 
 def clean_up(job):
@@ -1187,6 +1210,8 @@ def clean_up(job):
         paramfn.write("%-25s = %r\n" % (key, cfgs[key].value))
     paramfn.close()
 
+    if not job.zerodm:
+	shutil.copy(glob.glob("p*.fits")[0],job.outputdir)
     # Tar up the results files 
     tar_suffixes = ["_ACCEL_%d.tgz"%config.searching.lo_accel_zmax,
                     "_ACCEL_%d.tgz"%config.searching.hi_accel_zmax,
@@ -1200,6 +1225,7 @@ def clean_up(job):
                     "_spd.tgz",
                     "_spd_rat.tgz",
                     "_cands.ffa.tgz"]
+
     tar_globs = ["*_ACCEL_%d"%config.searching.lo_accel_zmax,
                  "*_ACCEL_%d"%config.searching.hi_accel_zmax,
                  "*_ACCEL_%d.cand"%config.searching.lo_accel_zmax,
@@ -1215,58 +1241,61 @@ def clean_up(job):
 
     print "Tarring up results"
     for (tar_suffix, tar_glob) in zip(tar_suffixes, tar_globs):
-        print "Opening tarball %s" % (job.basefilenm+tar_suffix)
+	tarfilenm = job.basefilenm+tar_suffix
+        print "Opening tarball %s" % (tarfilenm)
         print "Using glob %s" % tar_glob
-        tf = tarfile.open(job.basefilenm+tar_suffix, "w:gz")
+        tf = tarfile.open(tarfilenm, "w:gz")
         for infile in glob.glob(tar_glob):
-            print "    Adding file %s" % infile
             tf.add(infile)
             os.remove(infile)
         tf.close()
     sys.stdout.flush()
-    
-    # Copy all the important stuff to the output directory
-    resultglobs = ["*rfifind.[bimors]*", "*.tgz", "*.png", \
-                    "*.zaplist", "search_params.txt", "*.accelcands*", "*.ffacands*", \
-                    "*_merge.out", "candidate_attributes.txt", "groups.txt.gz", \
-                    "*_calrows.txt","spsummary.txt","*_radar_samples.txt"]
+
     
     # Print some info useful for debugging
-    print "Contents of workdir (%s) before copy: " % job.workdir
+    print "Contents of workdir (%s) before copy: "%job.workdir
     for fn in os.listdir(job.workdir):
         print "    %s" % fn
-    print "Contents of resultsdir (%s) before copy: " % job.outputdir
+    print "Contents of resultsdir (%s) before copy: "%job.outputdir
     for fn in os.listdir(job.outputdir):
         print "    %s" % fn
-    print "Contents of job.tempdir (%s) before copy: " % job.tempdir
+    print "Contents of job.tempdir (%s) before copy: "%job.tempdir
     for fn in os.listdir(job.tempdir):
         print "    %s" % fn
     sys.stdout.flush()
-    #####
-    
-    for resultglob in resultglobs:
-            for file in glob.glob(resultglob):
-                shutil.move(file, job.outputdir)
 
+    resultglobs = ["*rfifind*", "*.tgz", "*.png", \
+                    "*.zaplist", "search_params.txt", "*.accelcands*", "*.ffacands*", \
+                    "*_merge.out", "candidate_attributes.txt", "groups.txt.gz", \
+                    "*_calrows.txt","spsummary.txt","*_radar_samples.txt"]
+
+    # Open a tarball in results directory, add important files in work directory to tarball
+    finaltar = job.outputdir+"/"+job.basefilenm+".tgz"
+
+    print "Opening final tarball %s" % (finaltar)
+    tf_all = tarfile.open(finaltar, "w:gz")
+
+    for resultglob in resultglobs:
+	for infile in glob.glob(resultglob):
+    		tf_all.add(infile)
+    tf_all.close()
+
+
+    sys.stdout.flush()
+    
     # Remove the tmp directory (in a tmpfs mount)
     try:
         shutil.rmtree(job.tempdir)
     except: pass
   
-    #####
     # Print some info useful for debugging
-    print "Contents of workdir (%s) after copy: " % job.workdir
+    print "Contents of workdir (%s) after copy: "%job.workdir
     for fn in os.listdir(job.workdir):
         print "    %s" % fn
-    print "Contents of resultsdir (%s) after copy: " % job.outputdir
+    print "Contents of resultsdir (%s) after copy: "%job.outputdir
     for fn in os.listdir(job.outputdir):
         print "    %s" % fn
-    #print "Contents of job.tempdir (%s) after copy: " % job.tempdir
-    #for fn in os.listdir(job.tempdir):
-    #    print "    %s" % fn
     sys.stdout.flush()
-    #####
-
 
 class PrestoError(Exception):
     """Error to throw when a PRESTO program returns with 
@@ -1280,6 +1309,7 @@ if __name__ == "__main__":
     # sys.argv[3:] = data file names
     # sys.argv[1] = working directory name
     # sys.argv[2] = results directory name
+    np.seterr(divide='ignore', invalid='ignore',warn='ignore')
     workdir = sys.argv[1]
     resultsdir = sys.argv[2]
     filenms = sys.argv[3:]

@@ -89,7 +89,7 @@ def are_grouped(fn1, fn2):
 
 def is_complete(fns):
     """Return True if the list of file names, 'fns' is complete.
-        
+
         Inputs:
             fns: A list of file names.
 
@@ -141,7 +141,7 @@ def preprocess(fns):
     return datafile_type.preprocess(fns)
 
 class Data(object):
-    """PALFA Data object. 
+    """PALFA Data object.
         Collects observation information.
     """
     # An impossible to match string:
@@ -161,7 +161,7 @@ class Data(object):
         """
         fn = os.path.split(filename)[-1]
         return cls.filename_re.match(fn)
-    
+
     @classmethod
     def is_correct_filetype(cls, filenames):
         """Check if the Data class accurately describes the
@@ -182,11 +182,11 @@ class Data(object):
             belong together.
 
             Note: fn1 and fn2 cannot have the same file name (path is ignored).
- 
+
             Inputs:
                 fn1: A data file name.
                 fn2: A data file name.
- 
+
             Output:
                 grpd: Boolean value. True if files belong together.
         """
@@ -196,7 +196,7 @@ class Data(object):
     @classmethod
     def is_complete(cls, fns):
         """Return True if the list of file names, 'fns' is complete.
-            
+
             Inputs:
                 fns: a list of filenames.
 
@@ -229,8 +229,8 @@ class PsrfitsData(Data):
         """PSR fits Header object constructor.
         """
         import psrfits
-        #from formats import psrfits        
-         
+        #from formats import psrfits
+
         super(PsrfitsData, self).__init__(fitsfns)
         # Read information from files
         self.specinfo = psrfits.SpectraInfo(self.fns)
@@ -244,7 +244,7 @@ class PsrfitsData(Data):
         self.sample_time = self.specinfo.dt*1e6 # In microseconds
         self.sum_id = int(self.specinfo.summed_polns)
         self.timestamp_mjd = self.specinfo.start_MJD[0]
-        self.start_lst = self.specinfo.start_lst 
+        self.start_lst = self.specinfo.start_lst
         self.orig_start_az = self.specinfo.azimuth
         self.orig_start_za = self.specinfo.zenith_ang
         self.orig_ra_deg = self.specinfo.ra2000
@@ -281,7 +281,7 @@ class PsrfitsData(Data):
                 None
 
             Note: This cannot be undone!
-        
+
         """
         try:
             import astropy.io.fits as pyfits
@@ -292,7 +292,7 @@ class PsrfitsData(Data):
             for fn in self.fns:
                 hdus = pyfits.open(fn, mode='update')
                 primary = hdus['PRIMARY'].header
-                primary['RA'] = self.correct_ra 
+                primary['RA'] = self.correct_ra
                 primary['DEC'] = self.correct_decl
                 hdus.close() # hdus are updated at close-time
 
@@ -308,7 +308,7 @@ class WappPsrfitsData(PsrfitsData):
         super(WappPsrfitsData, self).__init__(fitsfns)
         self.obstype = 'WAPP'
         self.beam_id = self.specinfo.beam_id
-        print self.beam_id
+        #print self.beam_id
         if self.beam_id is None:
             raise ValueError("Beam number not encoded in PSR fits header.")
         self.get_correct_positions()
@@ -325,7 +325,7 @@ class WappPsrfitsData(PsrfitsData):
         self.obs_name = '.'.join([self.project_id, self.source_name, \
                                     str(int(self.timestamp_mjd)), \
                                     str(self.scan_num)])
-    
+
     def get_correct_positions(self):
         """Reconstruct original wapp filename and check
             for correct beam positions from the coordinates
@@ -380,14 +380,14 @@ class WappPsrfitsData(PsrfitsData):
             belong together.
 
             Note: fn1 and fn2 cannot have the same file name (path is ignored).
- 
+
             *** Note: WAPP files are not supposed to be grouped. This
             ***     function always returns False.
 
             Inputs:
                 fn1: A data file name.
                 fn2: A data file name.
- 
+
             Output:
                 grpd: Boolean value. True if files belong together.
         """
@@ -396,7 +396,7 @@ class WappPsrfitsData(PsrfitsData):
     @classmethod
     def is_complete(cls, fns):
         """Return True if the list of file names, 'fns' is complete.
-            
+
             Inputs:
                 fns: a list of filenames.
 
@@ -405,7 +405,7 @@ class WappPsrfitsData(PsrfitsData):
                     is a group that is complete.
         """
         if len(fns) == 1:
-            complete = cls.is_correct_filetype(fns) 
+            complete = cls.is_correct_filetype(fns)
         elif len(fns) > 1:
             warnings.warn("List of PSRFITS WAPP files has " \
                             "too many files (%d)!" % len(fns))
@@ -467,13 +467,13 @@ class MockPsrfitsBaseData(PsrfitsData):
         elif len(matches) == 1:
             # Use values from coords table
             self.posn_corrected = True
-            
+
             # Format of mock coords table is:
             # <first sub0 filename> <ra deg> <dec deg> <frac year> <lst hrs> <ALFA rot deg>
             split = matches[0].split()
             self.ra_deg = float(split[1])
             self.dec_deg = float(split[2])
-            
+
             self.correct_ra = protractor.convert(self.ra_deg, 'deg', 'hmsstr')[0]
             self.correct_decl = protractor.convert(self.dec_deg, 'deg', 'dmsstr')[0]
             self.right_ascension = float(self.correct_ra.replace(':', ''))
@@ -509,11 +509,11 @@ class MockPsrfitsData(MockPsrfitsBaseData):
             belong together.
 
             Note: fn1 and fn2 cannot have the same file name (path is ignored).
- 
+
             Inputs:
                 fn1: A data file name.
                 fn2: A data file name.
- 
+
             Output:
                 grpd: Boolean value. True if files belong together.
         """
@@ -532,11 +532,11 @@ class MockPsrfitsData(MockPsrfitsBaseData):
             else:
                 grpd = False
         return grpd
-           
+
     @classmethod
     def is_complete(cls, fns):
         """Return True if the list of file names, 'fns' is complete.
-            
+
             Inputs:
                 fns: a list of filenames.
 
@@ -571,21 +571,21 @@ class MockPsrfitsData(MockPsrfitsBaseData):
         obsdata = cls(fns)
         outbasenm = "%(projid)s.%(date)s.%(source)s.b%(beam)s.%(scan)s" % \
                         fnmatchdict
-        
+
         outfile = outbasenm + "_0001.fits" # '0001' added is the filenumber
 
         # Clobber output file
         #if os.path.exists(outfile):
         #    os.remove(outfile)
-        
+
         # Merge mock subbands
         mergecmd = "combine_mocks %s -o %s" % (infiles, outbasenm)
         pipeline_utils.execute(mergecmd, stdout=outbasenm+"_merge.out")
-        
+
         # Rename file to remove the '_0001' that was added
         mergedfn = outbasenm+'.fits'
         os.rename(outfile, mergedfn)
-        
+
         merged = autogen_dataobj([mergedfn])
         if not isinstance(merged, MergedMockPsrfitsData):
             raise ValueError("Preprocessing of Mock data has not produced " \
@@ -601,8 +601,8 @@ class MockPsrfitsData(MockPsrfitsBaseData):
             calrowsfile.write("Subints with cal: %s\n" % \
                     ",".join(["%d" % ii for ii in sorted(subints_with_cal)]))
             rowdelcmds = []
-            
-            # Enlarge list of rows to remove if some are near 
+
+            # Enlarge list of rows to remove if some are near
             # the beginning or end of the obs
             to_remove = []
             nearstart = [ii for ii in subints_with_cal if ii < 0.1*num_subints]
@@ -661,7 +661,6 @@ class MergedMockPsrfitsData(MockPsrfitsBaseData):
     filename_re = re.compile(r'^(?P<projid>[Pp]\d{4})\.(?P<date>\d{8})\.' \
                                 r'(?P<source>.*)\.b(?P<beam>[0-7])' \
                                 r'\.(?P<scan>\d{5})\.fits')
-
     def __init__(self, fitsfns):
         super(MergedMockPsrfitsData, self).__init__(fitsfns)
         self.num_ifs = 2
@@ -682,15 +681,15 @@ class MergedMockPsrfitsData(MockPsrfitsBaseData):
             belong together.
 
             Note: fn1 and fn2 cannot have the same file name (path is ignored).
- 
-            *** Note: Merged Mock files don't need to be grouped 
-            ***     (they're already merged!) This function always 
+
+            *** Note: Merged Mock files don't need to be grouped
+            ***     (they're already merged!) This function always
             ***     returns False.
 
             Inputs:
                 fn1: A data file name.
                 fn2: A data file name.
- 
+
             Output:
                 grpd: Boolean value. True if files belong together.
         """
@@ -699,7 +698,7 @@ class MergedMockPsrfitsData(MockPsrfitsBaseData):
     @classmethod
     def is_complete(cls, fns):
         """Return True if the list of file names, 'fns' is complete.
-            
+
             Inputs:
                 fns: a list of filenames.
 
@@ -708,7 +707,7 @@ class MergedMockPsrfitsData(MockPsrfitsBaseData):
                     is a group that is complete.
         """
         if len(fns) == 1:
-            complete = cls.is_correct_filetype(fns) 
+            complete = cls.is_correct_filetype(fns)
         elif len(fns) > 1:
             warnings.warn("List of merged Mock files has " \
                             "too many files (%d)!" % len(fns))
@@ -719,7 +718,7 @@ class MergedMockPsrfitsData(MockPsrfitsBaseData):
 
     def get_subints_with_cal(self, nsigma=20, margin_of_error=1):
         """Return a list of subint numbers with the cal turned on.
- 
+
             Input:
                 nsigma: The number of sigma above the median a
                     subint needs to be in order to be flagged as
@@ -727,10 +726,10 @@ class MergedMockPsrfitsData(MockPsrfitsBaseData):
 
                     NOTE: The median absolute deviation is used in
                         place of the standard deviation here.
-                margin_of_error: For each subint with the cal on 
+                margin_of_error: For each subint with the cal on
                     also flag 'margin_of_error' subints on either
                     side. (Default: 1)
- 
+
             Output:
                 subints_with_cal: A sorted list of subints with the
                     cal on.
@@ -755,20 +754,20 @@ class MergedMockPsrfitsData(MockPsrfitsBaseData):
         #for ii, (med, nsig) in enumerate(zip(meds, (meds-med_of_meds)/mad_of_meds)):
         #    print "%d: %g (%g)" % (ii, med, nsig)
         has_cal = (meds-med_of_meds)/mad_of_meds > nsigma
- 
+
         subints_with_cal = set()
         for isub in np.flatnonzero(has_cal):
             subints_with_cal.add(isub)
             for x in range(1,margin_of_error+1):
                 subints_with_cal.add(isub-x)
                 subints_with_cal.add(isub+x)
- 
+
         #print "Subints with cal: %s" % sorted(list(subints_with_cal))
         #print "Conservative list of subints to remove: %s" % sorted(list(subints_with_cal))
 
         # Remove dat file created
         #os.remove(datfn)
-        
+
         return sorted(list(subints_with_cal))
 
 
